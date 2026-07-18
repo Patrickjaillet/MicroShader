@@ -34,6 +34,7 @@ void render_stats_panel(const UshaderGolfStats& stats, std::size_t golfed_byte_s
         ImGui::Text("Trailing returns: %zu", static_cast<std::size_t>(stats.trailing_void_returns_removed));
         ImGui::Text("Compound assigns: %zu", static_cast<std::size_t>(stats.compound_assignments));
         ImGui::Text("Inc/dec: %zu", static_cast<std::size_t>(stats.increments_decrements));
+        ImGui::Text("Algebraic identities: %zu", static_cast<std::size_t>(stats.algebraic_identities_simplified));
         ImGui::NextColumn();
         ImGui::Text("Ternaries: %zu", static_cast<std::size_t>(stats.ternaries_from_if_else));
         ImGui::Text("Declarations merged: %zu", static_cast<std::size_t>(stats.declarations_merged));

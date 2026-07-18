@@ -2,6 +2,19 @@
 
 All notable changes to µShader are documented in this file.
 
+## [1.2.4] - 2026-07-18
+
+### Added
+
+- New golf pass: algebraic identity simplification. Removes
+  multiplicative/additive identities (`x*1`, `1*x`, `x/1`, `x+0`,
+  `0+x`, `x-0`) on bare identifiers, and rewrites `pow(x,2.)` to
+  `x*x`, with its own toggle ("Algebraic identities") in the Passes
+  panel. Restricted to single-identifier operands so it can never
+  duplicate or drop an expression with a side effect; numeric-literal
+  operands are deliberately left to the existing constant-folding
+  passes, which already handle negative-zero edge cases correctly.
+
 ## [1.2.3] - 2026-07-18
 
 ### Changed

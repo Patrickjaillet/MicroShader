@@ -456,6 +456,32 @@ section 5: Source, Golfed, Viewport, Stats, golf controls, About)
       the visual redesign.
 - [x] `CHANGELOG.md` entry for `v1.2.1`, tag `v1.2.1`.
 
+### Phase 11 — Post-1.2 (ongoing) — Maximum golfing power
+
+µShader's stated purpose is to be the most powerful GLSL golfing
+system available while never changing shader behavior. This phase
+tracks incremental additions to the `rust-core` golfing engine beyond
+the passes that existed at v1.0 — each new pass gets its own toggle,
+its own `fixtures/*.glsl` regression case, and Rust unit tests before
+being considered done. Not a fixed scope; entries are appended here as
+passes are added.
+
+- [x] **Algebraic identity simplification** (`simplify_algebraic_identities`
+      in `rust-core/src/aggressive.rs`): removes `x*1`, `1*x`, `x/1`,
+      `x+0`, `0+x`, `x-0` for a single-identifier `x`, and rewrites
+      `pow(x,2.)` to `x*x` for a single identifier/number `x`.
+      Deliberately restricted to bare identifiers (never a parenthesized
+      or multi-token expression) so the pass can never duplicate or drop
+      something with a side effect, and deliberately leaves
+      numeric-literal operands to `fold_constants`/`fold_*_float_constants`,
+      which already handle the negative-zero edge cases of folding two
+      literals together — verified by a regression test
+      (`refuses_to_fold_a_float_chain_that_would_produce_negative_zero`)
+      that this pass does not reintroduce a sign-of-zero bug the
+      existing folding passes were already careful to avoid. Covered by
+      `fixtures/algebraic_identities.glsl` and four Rust unit tests in
+      `golfer.rs`.
+
 ---
 
 ## 7. Explicitly out of scope for v1.0

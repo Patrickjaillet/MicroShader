@@ -27,6 +27,7 @@ UshaderGolfOptions to_golf_options(const GolfPassToggles& toggles)
         toggles.strip_duplicate_precision,
         toggles.eliminate_dead_functions,
         toggles.inline_single_call_functions,
+        toggles.simplify_algebraic_identities,
     };
 }
 
@@ -45,6 +46,7 @@ void render_golf_controls(GolfPassToggles& toggles, std::string& protected_names
         themed_checkbox("Trailing return", &toggles.strip_trailing_void_return);
         themed_checkbox("Compound assign", &toggles.compound_assignments);
         themed_checkbox("Increment/decrement", &toggles.increment_decrement);
+        themed_checkbox("Algebraic identities", &toggles.simplify_algebraic_identities);
         ImGui::NextColumn();
         themed_checkbox("Ternary", &toggles.ternary_from_if_else);
         themed_checkbox("Merge declarations", &toggles.merge_declarations);

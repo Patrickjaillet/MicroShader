@@ -2,8 +2,8 @@ use crate::aggressive::{
     compound_assignments, eliminate_dead_functions, eliminate_dead_locals, eliminate_dead_stores,
     fold_additive_constants, fold_additive_float_constants, fold_constants, fold_float_constants,
     increment_decrement, merge_declarations, reduce_constant_vectors, shortest_scientific_form,
-    strip_duplicate_precision, strip_redundant_braces, strip_redundant_parens, strip_trailing_void_return,
-    ternary_from_if_else, AggressiveStats, Item,
+    simplify_algebraic_identities, strip_duplicate_precision, strip_redundant_braces,
+    strip_redundant_parens, strip_trailing_void_return, ternary_from_if_else, AggressiveStats, Item,
 };
 use crate::lexer::{tokenize_spaced, Tok};
 use crate::vocab::{
@@ -399,6 +399,7 @@ pub struct AggressiveOptions {
     pub strip_duplicate_precision: bool,
     pub eliminate_dead_functions: bool,
     pub inline_single_call_functions: bool,
+    pub simplify_algebraic_identities: bool,
 }
 
 impl AggressiveOptions {
@@ -418,6 +419,7 @@ impl AggressiveOptions {
             strip_duplicate_precision: true,
             eliminate_dead_functions: true,
             inline_single_call_functions: true,
+            simplify_algebraic_identities: true,
         }
     }
 
@@ -437,6 +439,7 @@ impl AggressiveOptions {
             strip_duplicate_precision: false,
             eliminate_dead_functions: false,
             inline_single_call_functions: false,
+            simplify_algebraic_identities: false,
         }
     }
 }
@@ -565,6 +568,9 @@ pub fn golf_with_protected_names(
         }
         if aggressive.reduce_constant_vectors {
             items = reduce_constant_vectors(items, &mut aggressive_stats);
+        }
+        if aggressive.simplify_algebraic_identities {
+            items = simplify_algebraic_identities(items, &mut aggressive_stats);
         }
         if aggressive.compound_assignments {
             items = compound_assignments(items, &mut aggressive_stats);
@@ -1479,6 +1485,37 @@ mod tests {
         let r = golf("void f(){float a=-0.0-0.0;foo(a);}", true);
         assert_eq!(r.code, "void b(){float a=-0.-0.;foo(a);}");
         assert_eq!(r.stats.aggressive.constants_folded, 0);
+    }
+
+    #[test]
+    fn simplifies_multiplicative_and_additive_identities_on_identifiers() {
+        let r = golf(
+            "void f(){float a=x*1.0;float b=1.0*x;float c=x/1.0;float d=x+0.0;float e=0.0+x;float g=x-0.0;foo(a,b,c,d,e,g);}",
+            true,
+        );
+        assert!(r.stats.aggressive.algebraic_identities_simplified >= 6);
+        assert!(!r.code.contains('*'));
+        assert!(!r.code.contains('/'));
+    }
+
+    #[test]
+    fn simplifies_pow_of_two_on_a_single_identifier() {
+        let r = golf("void f(){float a=pow(x,2.0);foo(a);}", true);
+        assert_eq!(r.code, "void b(){float a=x*x;foo(a);}");
+        assert_eq!(r.stats.aggressive.algebraic_identities_simplified, 1);
+    }
+
+    #[test]
+    fn does_not_simplify_identities_on_numeric_literal_operands() {
+        let r = golf("void f(){float a=2.0*1.0;foo(a);}", true);
+        assert_eq!(r.code, "void b(){float a=2.;foo(a);}");
+    }
+
+    #[test]
+    fn does_not_duplicate_a_call_expression_for_pow_square() {
+        let r = golf("void f(){float a=pow(rand(),2.0);foo(a);}", true);
+        assert_eq!(r.stats.aggressive.algebraic_identities_simplified, 0);
+        assert!(r.code.contains("pow("));
     }
 
     #[test]

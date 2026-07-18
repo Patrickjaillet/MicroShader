@@ -23,6 +23,7 @@ typedef struct {
     bool strip_duplicate_precision;
     bool eliminate_dead_functions;
     bool inline_single_call_functions;
+    bool simplify_algebraic_identities;
 } UshaderGolfOptions;
 
 typedef struct {
@@ -45,6 +46,7 @@ typedef struct {
     uintptr_t duplicate_precision_removed;
     uintptr_t dead_functions_removed;
     uintptr_t functions_inlined;
+    uintptr_t algebraic_identities_simplified;
 } UshaderGolfStats;
 
 #ifdef __cplusplus

@@ -25,6 +25,7 @@ pub struct AggressiveStats {
     pub duplicate_precision_removed: usize,
     pub dead_functions_removed: usize,
     pub functions_inlined: usize,
+    pub algebraic_identities_simplified: usize,
 }
 
 pub(crate) fn is_unary_prefix(c: char) -> bool {
@@ -632,6 +633,110 @@ pub fn fold_additive_float_constants(items: Vec<Item>, stats: &mut AggressiveSta
                             continue;
                         }
                     }
+                }
+            }
+        }
+
+        out.push(items[i].clone());
+        i += 1;
+    }
+    out
+}
+
+fn is_ident_or_number(items: &[Item], i: usize) -> bool {
+    matches!(
+        items.get(i).map(|it| &it.tok),
+        Some(Tok::Ident(_)) | Some(Tok::Number(_))
+    )
+}
+
+fn is_ident(items: &[Item], i: usize) -> bool {
+    matches!(items.get(i).map(|it| &it.tok), Some(Tok::Ident(_)))
+}
+
+fn is_numeric_value(raw: &str, target: f64) -> bool {
+    if let Some(v) = parse_plain_int(raw) {
+        return v as f64 == target;
+    }
+    if let Some(v) = parse_plain_float(raw) {
+        return v as f64 == target;
+    }
+    false
+}
+
+/// Removes multiplicative/additive identities (`x*1`, `1*x`, `x/1`, `x+0`,
+/// `0+x`, `x-0`) where `x` is a single identifier, and squares expressed via
+/// `pow(x,2.)` for a single identifier/number `x`. Numeric-literal operands
+/// are deliberately left to `fold_constants`/`fold_*_float_constants`, which
+/// already handle the negative-zero edge cases of literal-literal folding;
+/// this pass only ever duplicates or drops a bare variable read, which can
+/// never have a side effect.
+pub fn simplify_algebraic_identities(items: Vec<Item>, stats: &mut AggressiveStats) -> Vec<Item> {
+    let mut out: Vec<Item> = Vec::with_capacity(items.len());
+    let mut i = 0;
+    while i < items.len() {
+        if is_ident(&items, i) {
+            if let Some(Tok::Punct(op @ ('*' | '/' | '+' | '-'))) = items.get(i + 1).map(|it| &it.tok) {
+                if let Some(Tok::Number(raw)) = items.get(i + 2).map(|it| &it.tok) {
+                    let is_identity = match op {
+                        '*' | '/' => is_numeric_value(raw, 1.0),
+                        '+' | '-' => is_numeric_value(raw, 0.0),
+                        _ => false,
+                    };
+                    if is_identity {
+                        out.push(items[i].clone());
+                        stats.algebraic_identities_simplified += 1;
+                        i += 3;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        if let Some(Tok::Number(raw)) = items.get(i).map(|it| &it.tok) {
+            if let Some(Tok::Punct(op @ ('*' | '+'))) = items.get(i + 1).map(|it| &it.tok) {
+                if is_ident(&items, i + 2) {
+                    let is_identity = match op {
+                        '*' => is_numeric_value(raw, 1.0),
+                        '+' => is_numeric_value(raw, 0.0),
+                        _ => false,
+                    };
+                    if is_identity {
+                        let mut operand = items[i + 2].clone();
+                        operand.space_before = items[i].space_before;
+                        out.push(operand);
+                        stats.algebraic_identities_simplified += 1;
+                        i += 3;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        let is_pow = matches!(items.get(i).map(|it| &it.tok), Some(Tok::Ident(name)) if name == "pow");
+        if is_pow
+            && matches!(items.get(i + 1).map(|it| &it.tok), Some(Tok::Punct('(')))
+            && is_ident_or_number(&items, i + 2)
+            && matches!(items.get(i + 3).map(|it| &it.tok), Some(Tok::Punct(',')))
+        {
+            if let Some(Tok::Number(raw)) = items.get(i + 4).map(|it| &it.tok) {
+                if is_numeric_value(raw, 2.0)
+                    && matches!(items.get(i + 5).map(|it| &it.tok), Some(Tok::Punct(')')))
+                {
+                    let mut operand = items[i + 2].clone();
+                    operand.space_before = items[i].space_before;
+                    out.push(operand.clone());
+                    out.push(Item {
+                        tok: Tok::Punct('*'),
+                        text: "*".to_string(),
+                        space_before: false,
+                    });
+                    let mut second = operand;
+                    second.space_before = false;
+                    out.push(second);
+                    stats.algebraic_identities_simplified += 1;
+                    i += 6;
+                    continue;
                 }
             }
         }
