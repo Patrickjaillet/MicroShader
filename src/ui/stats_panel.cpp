@@ -2,12 +2,14 @@
 
 #include <imgui.h>
 
+#include "theme_tokens.h"
+
 namespace
 {
     void render_badge(const char* label, std::size_t limit, std::size_t actual)
     {
         bool fits = actual <= limit;
-        ImVec4 color = fits ? ImVec4(0.20f, 0.60f, 0.25f, 1.0f) : ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
+        ImVec4 color = fits ? tokens::status_ok : tokens::text_disabled;
         ImGui::PushStyleColor(ImGuiCol_Text, color);
         ImGui::Text("%s %s", fits ? "\xe2\x9c\x93" : "\xc2\xb7", label);
         ImGui::PopStyleColor();
@@ -22,7 +24,7 @@ void render_stats_panel(const UshaderGolfStats& stats, std::size_t golfed_byte_s
     ImGui::Text("Renamed: %zu   Numbers shortened: %zu",
         static_cast<std::size_t>(stats.renamed_count), static_cast<std::size_t>(stats.numbers_shortened));
 
-    if (ImGui::CollapsingHeader("Per-pass counters"))
+    if (ImGui::CollapsingHeader("PER-PASS COUNTERS"))
     {
         ImGui::Columns(2, nullptr, false);
         ImGui::Text("Dead locals: %zu", static_cast<std::size_t>(stats.dead_locals_removed));

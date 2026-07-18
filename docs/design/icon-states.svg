@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="940" viewBox="0 0 640 940">
+<rect width="640" height="940" fill="#1E1E1E"/>
+<text x="20" y="28" font-family="Segoe UI, sans-serif" font-size="20" fill="#E6E6E6">uShader Phase 10 &#8212; icon color states</text>
+<text x="20" y="110.0" font-family="Segoe UI, sans-serif" font-size="14" fill="#9E9E9E">Run golf</text>
+<rect x="160" y="60" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="230.0" cy="92.0" r="12" fill="none" stroke="#9E9E9E" stroke-width="2.5"/>
+<text x="230.0" y="128" font-family="Consolas, monospace" font-size="11" fill="#9E9E9E" text-anchor="middle">idle</text>
+<rect x="320" y="60" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="390.0" cy="92.0" r="12" fill="none" stroke="#E6E6E6" stroke-width="2.5"/>
+<text x="390.0" y="128" font-family="Consolas, monospace" font-size="11" fill="#E6E6E6" text-anchor="middle">hover</text>
+<rect x="480" y="60" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="550.0" cy="92.0" r="12" fill="none" stroke="#2680EB" stroke-width="2.5"/>
+<text x="550.0" y="128" font-family="Consolas, monospace" font-size="11" fill="#2680EB" text-anchor="middle">active</text>
+<text x="20" y="200.0" font-family="Segoe UI, sans-serif" font-size="14" fill="#9E9E9E">Open</text>
+<rect x="160" y="150" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="230.0" cy="182.0" r="12" fill="none" stroke="#9E9E9E" stroke-width="2.5"/>
+<text x="230.0" y="218" font-family="Consolas, monospace" font-size="11" fill="#9E9E9E" text-anchor="middle">idle</text>
+<rect x="320" y="150" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="390.0" cy="182.0" r="12" fill="none" stroke="#E6E6E6" stroke-width="2.5"/>
+<text x="390.0" y="218" font-family="Consolas, monospace" font-size="11" fill="#E6E6E6" text-anchor="middle">hover</text>
+<rect x="480" y="150" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="550.0" cy="182.0" r="12" fill="none" stroke="#2680EB" stroke-width="2.5"/>
+<text x="550.0" y="218" font-family="Consolas, monospace" font-size="11" fill="#2680EB" text-anchor="middle">active</text>
+<text x="20" y="290.0" font-family="Segoe UI, sans-serif" font-size="14" fill="#9E9E9E">Save</text>
+<rect x="160" y="240" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="230.0" cy="272.0" r="12" fill="none" stroke="#9E9E9E" stroke-width="2.5"/>
+<text x="230.0" y="308" font-family="Consolas, monospace" font-size="11" fill="#9E9E9E" text-anchor="middle">idle</text>
+<rect x="320" y="240" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="390.0" cy="272.0" r="12" fill="none" stroke="#E6E6E6" stroke-width="2.5"/>
+<text x="390.0" y="308" font-family="Consolas, monospace" font-size="11" fill="#E6E6E6" text-anchor="middle">hover</text>
+<rect x="480" y="240" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="550.0" cy="272.0" r="12" fill="none" stroke="#2680EB" stroke-width="2.5"/>
+<text x="550.0" y="308" font-family="Consolas, monospace" font-size="11" fill="#2680EB" text-anchor="middle">active</text>
+<text x="20" y="380.0" font-family="Segoe UI, sans-serif" font-size="14" fill="#9E9E9E">Copy</text>
+<rect x="160" y="330" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="230.0" cy="362.0" r="12" fill="none" stroke="#9E9E9E" stroke-width="2.5"/>
+<text x="230.0" y="398" font-family="Consolas, monospace" font-size="11" fill="#9E9E9E" text-anchor="middle">idle</text>
+<rect x="320" y="330" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="390.0" cy="362.0" r="12" fill="none" stroke="#E6E6E6" stroke-width="2.5"/>
+<text x="390.0" y="398" font-family="Consolas, monospace" font-size="11" fill="#E6E6E6" text-anchor="middle">hover</text>
+<rect x="480" y="330" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="550.0" cy="362.0" r="12" fill="none" stroke="#2680EB" stroke-width="2.5"/>
+<text x="550.0" y="398" font-family="Consolas, monospace" font-size="11" fill="#2680EB" text-anchor="middle">active</text>
+<text x="20" y="470.0" font-family="Segoe UI, sans-serif" font-size="14" fill="#9E9E9E">Export</text>
+<rect x="160" y="420" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="230.0" cy="452.0" r="12" fill="none" stroke="#9E9E9E" stroke-width="2.5"/>
+<text x="230.0" y="488" font-family="Consolas, monospace" font-size="11" fill="#9E9E9E" text-anchor="middle">idle</text>
+<rect x="320" y="420" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="390.0" cy="452.0" r="12" fill="none" stroke="#E6E6E6" stroke-width="2.5"/>
+<text x="390.0" y="488" font-family="Consolas, monospace" font-size="11" fill="#E6E6E6" text-anchor="middle">hover</text>
+<rect x="480" y="420" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="550.0" cy="452.0" r="12" fill="none" stroke="#2680EB" stroke-width="2.5"/>
+<text x="550.0" y="488" font-family="Consolas, monospace" font-size="11" fill="#2680EB" text-anchor="middle">active</text>
+<text x="20" y="560.0" font-family="Segoe UI, sans-serif" font-size="14" fill="#9E9E9E">Screenshot</text>
+<rect x="160" y="510" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="230.0" cy="542.0" r="12" fill="none" stroke="#9E9E9E" stroke-width="2.5"/>
+<text x="230.0" y="578" font-family="Consolas, monospace" font-size="11" fill="#9E9E9E" text-anchor="middle">idle</text>
+<rect x="320" y="510" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="390.0" cy="542.0" r="12" fill="none" stroke="#E6E6E6" stroke-width="2.5"/>
+<text x="390.0" y="578" font-family="Consolas, monospace" font-size="11" fill="#E6E6E6" text-anchor="middle">hover</text>
+<rect x="480" y="510" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="550.0" cy="542.0" r="12" fill="none" stroke="#2680EB" stroke-width="2.5"/>
+<text x="550.0" y="578" font-family="Consolas, monospace" font-size="11" fill="#2680EB" text-anchor="middle">active</text>
+<text x="20" y="650.0" font-family="Segoe UI, sans-serif" font-size="14" fill="#9E9E9E">Record</text>
+<rect x="160" y="600" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="230.0" cy="632.0" r="12" fill="none" stroke="#9E9E9E" stroke-width="2.5"/>
+<text x="230.0" y="668" font-family="Consolas, monospace" font-size="11" fill="#9E9E9E" text-anchor="middle">idle</text>
+<rect x="320" y="600" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="390.0" cy="632.0" r="12" fill="none" stroke="#E6E6E6" stroke-width="2.5"/>
+<text x="390.0" y="668" font-family="Consolas, monospace" font-size="11" fill="#E6E6E6" text-anchor="middle">hover</text>
+<rect x="480" y="600" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="550.0" cy="632.0" r="12" fill="none" stroke="#2680EB" stroke-width="2.5"/>
+<text x="550.0" y="668" font-family="Consolas, monospace" font-size="11" fill="#2680EB" text-anchor="middle">active</text>
+<text x="20" y="740.0" font-family="Segoe UI, sans-serif" font-size="14" fill="#9E9E9E">Stop</text>
+<rect x="160" y="690" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="230.0" cy="722.0" r="12" fill="none" stroke="#9E9E9E" stroke-width="2.5"/>
+<text x="230.0" y="758" font-family="Consolas, monospace" font-size="11" fill="#9E9E9E" text-anchor="middle">idle</text>
+<rect x="320" y="690" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="390.0" cy="722.0" r="12" fill="none" stroke="#E6E6E6" stroke-width="2.5"/>
+<text x="390.0" y="758" font-family="Consolas, monospace" font-size="11" fill="#E6E6E6" text-anchor="middle">hover</text>
+<rect x="480" y="690" width="140" height="80" fill="#2B2B2B" stroke="#000000" stroke-width="1"/>
+<circle cx="550.0" cy="722.0" r="12" fill="none" stroke="#2680EB" stroke-width="2.5"/>
+<text x="550.0" y="758" font-family="Consolas, monospace" font-size="11" fill="#2680EB" text-anchor="middle">active</text>
+</svg>

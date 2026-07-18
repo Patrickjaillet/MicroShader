@@ -2,6 +2,40 @@
 
 All notable changes to µShader are documented in this file.
 
+## [1.2.1] - 2026-07-18
+
+### Changed
+
+- Full dark UI/UX overhaul modeled on Adobe Premiere Pro's editing
+  workspace, replacing the Phase 3 white theme entirely (no
+  light/dark toggle — one theme, deliberately, as before):
+  - New design-token table (`src/ui/theme_tokens.h`) backing every
+    color used anywhere in the UI.
+  - Compact chrome: 2px corner radius everywhere, thin flat
+    scrollbars, hover-only resize splitters, flat rectangular tabs
+    with a 2px accent underline on the active tab.
+  - Custom borderless window chrome: SDL3 borderless window with a
+    hand-rolled hit-test callback for dragging/resizing, plus a
+    custom title bar (app icon, title, minimize/maximize/close).
+  - Dark `TextEditor` palette for the Source/Golfed panels.
+  - Viewport restyled as a Program Monitor: black letterboxing,
+    compile-status dot (green/red) replacing the old text banner, and
+    a timecode readout.
+  - Icons now shift color between idle/hover/active states.
+  - About popup rebuilt as a centered dark card.
+  - New design references under `docs/design/` (color palette, full
+    UI mockup, icon states) and a WCAG AA contrast pass on the
+    text/background token pairs.
+
+### Fixed
+
+- The application could crash (`abort()`, debug CRT error) when
+  minimized: the custom title bar and dock-host windows were sized
+  from the OS-reported viewport size every frame, which can go to
+  zero while minimized, feeding a negative height into Dear ImGui's
+  docking system. UI building is now skipped entirely for frames
+  where the window is minimized or has a degenerate size.
+
 ## [1.2.0] - 2026-07-18
 
 ### Changed

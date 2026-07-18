@@ -28,6 +28,7 @@
 #include "ui/layout.h"
 #include "ui/stats_panel.h"
 #include "ui/theme.h"
+#include "ui/theme_tokens.h"
 #include "ushader/golf_core.h"
 #include "ushader/version.h"
 
@@ -39,6 +40,7 @@ namespace
     const wchar_t kMp4Filter[] = L"MP4 video (*.mp4)\0*.mp4\0";
     const wchar_t kWebMFilter[] = L"WebM video (*.webm)\0*.webm\0";
     const int kRecordFps = 24;
+    const float kTitleBarHeight = 32.0f;
 
     int parse_error_line_number(const std::string& log)
     {
@@ -64,6 +66,66 @@ namespace
         }
         return std::string();
     }
+
+    std::string format_timecode(float seconds)
+    {
+        int total_seconds = static_cast<int>(seconds);
+        int minutes = total_seconds / 60;
+        int secs = total_seconds % 60;
+        int frames_frac = static_cast<int>((seconds - static_cast<float>(total_seconds)) * 100.0f);
+        char buffer[16];
+        std::snprintf(buffer, sizeof(buffer), "%02d:%02d.%02d", minutes, secs, frames_frac);
+        return std::string(buffer);
+    }
+
+    struct TitleBarHitTestState
+    {
+        SDL_Rect minimize_rect{};
+        SDL_Rect maximize_rect{};
+        SDL_Rect close_rect{};
+        int title_bar_height = 0;
+    };
+
+    bool point_in_rect(int x, int y, const SDL_Rect& rect)
+    {
+        return x >= rect.x && x < rect.x + rect.w && y >= rect.y && y < rect.y + rect.h;
+    }
+
+    SDL_HitTestResult SDLCALL title_bar_hit_test(SDL_Window* win, const SDL_Point* area, void* data)
+    {
+        const TitleBarHitTestState* state = static_cast<const TitleBarHitTestState*>(data);
+        int width = 0;
+        int height = 0;
+        SDL_GetWindowSize(win, &width, &height);
+
+        const int edge = 6;
+        bool at_left = area->x < edge;
+        bool at_right = area->x >= width - edge;
+        bool at_top = area->y < edge;
+        bool at_bottom = area->y >= height - edge;
+
+        if (at_top && at_left) return SDL_HITTEST_RESIZE_TOPLEFT;
+        if (at_top && at_right) return SDL_HITTEST_RESIZE_TOPRIGHT;
+        if (at_bottom && at_left) return SDL_HITTEST_RESIZE_BOTTOMLEFT;
+        if (at_bottom && at_right) return SDL_HITTEST_RESIZE_BOTTOMRIGHT;
+        if (at_left) return SDL_HITTEST_RESIZE_LEFT;
+        if (at_right) return SDL_HITTEST_RESIZE_RIGHT;
+        if (at_top) return SDL_HITTEST_RESIZE_TOP;
+        if (at_bottom) return SDL_HITTEST_RESIZE_BOTTOM;
+
+        if (area->y < state->title_bar_height)
+        {
+            if (point_in_rect(area->x, area->y, state->minimize_rect) ||
+                point_in_rect(area->x, area->y, state->maximize_rect) ||
+                point_in_rect(area->x, area->y, state->close_rect))
+            {
+                return SDL_HITTEST_NORMAL;
+            }
+            return SDL_HITTEST_DRAGGABLE;
+        }
+
+        return SDL_HITTEST_NORMAL;
+    }
 }
 
 int main(int argc, char* argv[])
@@ -85,7 +147,7 @@ int main(int argc, char* argv[])
     SDL_Window* window = SDL_CreateWindow(
         "uShader " USHADER_VERSION_STRING,
         1280, 720,
-        SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL);
+        SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL | SDL_WINDOW_BORDERLESS);
 
     if (!window)
     {
@@ -93,6 +155,10 @@ int main(int argc, char* argv[])
         SDL_Quit();
         return 1;
     }
+
+    TitleBarHitTestState hit_test_state{};
+    hit_test_state.title_bar_height = static_cast<int>(kTitleBarHeight);
+    SDL_SetWindowHitTest(window, title_bar_hit_test, &hit_test_state);
 
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
     if (!gl_context)
@@ -128,6 +194,7 @@ int main(int argc, char* argv[])
     ImGui_ImplOpenGL3_Init("#version 330 core");
 
     Texture logo_texture = load_texture_from_file(asset_path("branding/logo.png").c_str());
+    Texture app_icon_texture = load_texture_from_file(asset_path("branding/app_icon.png").c_str());
     bool show_about = false;
 
     ShaderRunner source_runner;
@@ -137,12 +204,12 @@ int main(int argc, char* argv[])
 
     TextEditor source_editor;
     source_editor.SetLanguageDefinition(glsl_language_definition());
-    source_editor.SetPalette(TextEditor::GetLightPalette());
+    source_editor.SetPalette(TextEditor::GetDarkPalette());
     source_editor.SetText(kDefaultShaderSource);
 
     TextEditor golfed_editor;
     golfed_editor.SetLanguageDefinition(glsl_language_definition());
-    golfed_editor.SetPalette(TextEditor::GetLightPalette());
+    golfed_editor.SetPalette(TextEditor::GetDarkPalette());
     golfed_editor.SetReadOnly(true);
 
     std::string golfed_text;
@@ -160,11 +227,37 @@ int main(int argc, char* argv[])
 
     auto icon_button = [&](const char* icon, const char* label)
     {
+        ImGuiStyle& style = ImGui::GetStyle();
+        ImVec2 start = ImGui::GetCursorScreenPos();
+
         ImGui::PushFont(g_icon_font);
-        ImGui::Text("%s", icon);
+        ImVec2 icon_size = ImGui::CalcTextSize(icon);
         ImGui::PopFont();
-        ImGui::SameLine(0.0f, 6.0f);
-        return ImGui::Button(label);
+        ImVec2 label_size = ImGui::CalcTextSize(label);
+        const float gap = 6.0f;
+        ImVec2 button_size(
+            style.FramePadding.x * 2.0f + icon_size.x + gap + label_size.x,
+            style.FramePadding.y * 2.0f + ImGui::GetFontSize());
+
+        ImGui::PushID(label);
+        bool pressed = ImGui::Button("##icon_button", button_size);
+        bool hovered = ImGui::IsItemHovered();
+        bool active = ImGui::IsItemActive();
+        ImGui::PopID();
+
+        ImVec4 icon_color = active ? tokens::accent : (hovered ? tokens::text_primary : tokens::text_secondary);
+        ImU32 icon_color_u32 = ImGui::GetColorU32(icon_color);
+        ImU32 text_color_u32 = ImGui::GetColorU32(ImGuiCol_Text);
+
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        ImVec2 icon_pos(start.x + style.FramePadding.x, start.y + (button_size.y - icon_size.y) * 0.5f);
+        ImGui::PushFont(g_icon_font);
+        draw_list->AddText(icon_pos, icon_color_u32, icon);
+        ImGui::PopFont();
+        ImVec2 label_pos(icon_pos.x + icon_size.x + gap, start.y + (button_size.y - label_size.y) * 0.5f);
+        draw_list->AddText(label_pos, text_color_u32, label);
+
+        return pressed;
     };
 
     auto run_golf_action = [&]()
@@ -259,9 +352,110 @@ int main(int argc, char* argv[])
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
 
+        bool window_minimized = (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) != 0;
+
+        int window_pixel_w = 0;
+        int window_pixel_h = 0;
+        SDL_GetWindowSizeInPixels(window, &window_pixel_w, &window_pixel_h);
+
         const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+
+        if (!window_minimized && main_viewport->WorkSize.x >= 1.0f && main_viewport->WorkSize.y >= 1.0f)
+        {
+
+        ImGuiWindowFlags chrome_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+                                         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                                         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
+                                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
+                                         ImGuiWindowFlags_NoNavFocus;
+
         ImGui::SetNextWindowPos(main_viewport->WorkPos);
-        ImGui::SetNextWindowSize(main_viewport->WorkSize);
+        ImGui::SetNextWindowSize(ImVec2(main_viewport->WorkSize.x, kTitleBarHeight));
+        ImGui::SetNextWindowViewport(main_viewport->ID);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, tokens::bg_panel_raised);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 0.0f));
+        ImGui::Begin("##TitleBar", nullptr, chrome_flags);
+
+        if (app_icon_texture.id != 0)
+        {
+            ImGui::SetCursorPosY((kTitleBarHeight - 16.0f) * 0.5f);
+            ImGui::Image(static_cast<ImTextureID>(app_icon_texture.id), ImVec2(16.0f, 16.0f));
+            ImGui::SameLine(0.0f, 8.0f);
+        }
+        ImGui::SetCursorPosY((kTitleBarHeight - ImGui::GetFontSize()) * 0.5f);
+        ImGui::TextColored(tokens::text_secondary, "uShader " USHADER_VERSION_STRING);
+
+        const float button_width = 46.0f;
+        const float button_height = kTitleBarHeight;
+        ImGui::SameLine(main_viewport->WorkSize.x - button_width * 3.0f - 8.0f);
+        ImGui::SetCursorPosY(0.0f);
+
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
+
+        ImVec2 minimize_screen_pos = ImGui::GetCursorScreenPos();
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tokens::bg_hover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, tokens::bg_active);
+        ImGui::PushFont(g_icon_font);
+        bool minimize_clicked = ImGui::Button(ICON_MINUS, ImVec2(button_width, button_height));
+        ImGui::PopFont();
+        hit_test_state.minimize_rect = SDL_Rect{
+            static_cast<int>(minimize_screen_pos.x), static_cast<int>(minimize_screen_pos.y),
+            static_cast<int>(button_width), static_cast<int>(button_height)};
+
+        ImGui::SameLine(0.0f, 0.0f);
+        ImVec2 maximize_screen_pos = ImGui::GetCursorScreenPos();
+        ImGui::PushFont(g_icon_font);
+        bool maximize_clicked = ImGui::Button(ICON_SQUARE, ImVec2(button_width, button_height));
+        ImGui::PopFont();
+        hit_test_state.maximize_rect = SDL_Rect{
+            static_cast<int>(maximize_screen_pos.x), static_cast<int>(maximize_screen_pos.y),
+            static_cast<int>(button_width), static_cast<int>(button_height)};
+        ImGui::PopStyleColor(3);
+
+        ImGui::SameLine(0.0f, 0.0f);
+        ImVec2 close_screen_pos = ImGui::GetCursorScreenPos();
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tokens::status_error);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, tokens::status_error);
+        ImGui::PushFont(g_icon_font);
+        bool close_clicked = ImGui::Button(ICON_X, ImVec2(button_width, button_height));
+        ImGui::PopFont();
+        ImGui::PopStyleColor(3);
+        hit_test_state.close_rect = SDL_Rect{
+            static_cast<int>(close_screen_pos.x), static_cast<int>(close_screen_pos.y),
+            static_cast<int>(button_width), static_cast<int>(button_height)};
+
+        ImGui::PopStyleVar();
+
+        if (minimize_clicked)
+        {
+            SDL_MinimizeWindow(window);
+        }
+        if (maximize_clicked)
+        {
+            if (SDL_GetWindowFlags(window) & SDL_WINDOW_MAXIMIZED)
+            {
+                SDL_RestoreWindow(window);
+            }
+            else
+            {
+                SDL_MaximizeWindow(window);
+            }
+        }
+        if (close_clicked)
+        {
+            running = false;
+        }
+
+        ImGui::End();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+
+        ImVec2 host_pos(main_viewport->WorkPos.x, main_viewport->WorkPos.y + kTitleBarHeight);
+        ImVec2 host_size(main_viewport->WorkSize.x, main_viewport->WorkSize.y - kTitleBarHeight);
+        ImGui::SetNextWindowPos(host_pos);
+        ImGui::SetNextWindowSize(host_size);
         ImGui::SetNextWindowViewport(main_viewport->ID);
 
         ImGuiWindowFlags host_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
@@ -415,16 +609,37 @@ int main(int argc, char* argv[])
         if (recorder.is_recording())
         {
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.80f, 0.20f, 0.20f, 1.0f), "REC %d frames", recorder.frame_count());
+            ImGui::TextColored(tokens::status_error, "REC %d frames", recorder.frame_count());
+        }
+
+        ImGui::SameLine(0.0f, 16.0f);
+        float elapsed_seconds = static_cast<float>(SDL_GetTicks() - start_ticks) / 1000.0f;
+        if (g_mono_font != nullptr)
+        {
+            ImGui::PushFont(g_mono_font);
+        }
+        ImGui::TextColored(tokens::text_secondary, "%s", format_timecode(elapsed_seconds).c_str());
+        if (g_mono_font != nullptr)
+        {
+            ImGui::PopFont();
+        }
+
+        {
+            ImVec4 dot_color = compile_error.empty() ? tokens::status_ok : tokens::status_error;
+            ImDrawList* draw_list = ImGui::GetWindowDrawList();
+            ImVec2 dot_pos = ImGui::GetCursorScreenPos();
+            float dot_radius = 5.0f;
+            float row_height = ImGui::GetFontSize();
+            draw_list->AddCircleFilled(
+                ImVec2(dot_pos.x + dot_radius, dot_pos.y + row_height * 0.5f),
+                dot_radius, ImGui::GetColorU32(dot_color));
+            ImGui::Dummy(ImVec2(dot_radius * 2.0f + 6.0f, row_height));
+            ImGui::SameLine(0.0f, 0.0f);
+            ImGui::TextColored(dot_color, compile_error.empty() ? "Compiled" : "Shader error");
         }
 
         if (!compile_error.empty())
         {
-            ImGui::PushFont(g_icon_font);
-            ImGui::TextColored(ImVec4(0.80f, 0.20f, 0.20f, 1.0f), ICON_CIRCLE_ALERT);
-            ImGui::PopFont();
-            ImGui::SameLine(0.0f, 6.0f);
-            ImGui::TextColored(ImVec4(0.80f, 0.20f, 0.20f, 1.0f), "Shader error");
             int display_line = parse_error_line_number(compile_error) - ShaderRunner::fragment_header_lines();
             ImGui::TextWrapped("%s%s", error_line_prefix(display_line).c_str(), compile_error.c_str());
         }
@@ -432,10 +647,6 @@ int main(int argc, char* argv[])
         ImGui::Separator();
 
         ImVec2 avail = ImGui::GetContentRegionAvail();
-
-        int window_pixel_w = 0;
-        int window_pixel_h = 0;
-        SDL_GetWindowSizeInPixels(window, &window_pixel_w, &window_pixel_h);
 
         Uint64 now_ticks = SDL_GetTicks();
         Uint64 delta_ms = now_ticks - last_ticks;
@@ -480,6 +691,9 @@ int main(int argc, char* argv[])
             }
         };
 
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, tokens::bg_field_deepest);
+        ImGui::BeginChild("##viewport_letterbox", avail, false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
         if (compare_mode)
         {
             float half_w = (avail.x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
@@ -492,6 +706,9 @@ int main(int argc, char* argv[])
         {
             draw_panel(golfed_runner, golfed_viewport_fb, avail);
         }
+
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
 
         if (start_recording_requested)
         {
@@ -516,10 +733,12 @@ int main(int argc, char* argv[])
 
         ImGui::End();
 
+        }
+
         ImGui::Render();
 
         glViewport(0, 0, window_pixel_w, window_pixel_h);
-        glClearColor(0.90f, 0.91f, 0.94f, 1.0f);
+        glClearColor(tokens::bg_app.x, tokens::bg_app.y, tokens::bg_app.z, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
@@ -527,6 +746,7 @@ int main(int argc, char* argv[])
     }
 
     destroy_texture(logo_texture);
+    destroy_texture(app_icon_texture);
     source_viewport_fb.destroy();
     golfed_viewport_fb.destroy();
     source_runner.destroy();

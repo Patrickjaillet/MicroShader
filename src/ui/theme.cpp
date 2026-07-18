@@ -4,76 +4,87 @@
 
 #include "../platform/paths.h"
 #include "icons.h"
+#include "theme_tokens.h"
 
 ImFont* g_icon_font = nullptr;
+ImFont* g_mono_font = nullptr;
 
 void apply_theme()
 {
-    ImGui::StyleColorsLight();
+    ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
 
-    style.WindowRounding = 6.0f;
-    style.ChildRounding = 6.0f;
-    style.FrameRounding = 4.0f;
-    style.PopupRounding = 6.0f;
-    style.ScrollbarRounding = 8.0f;
-    style.GrabRounding = 4.0f;
-    style.TabRounding = 6.0f;
+    style.WindowRounding = 2.0f;
+    style.ChildRounding = 2.0f;
+    style.FrameRounding = 2.0f;
+    style.PopupRounding = 2.0f;
+    style.ScrollbarRounding = 2.0f;
+    style.GrabRounding = 2.0f;
+    style.TabRounding = 2.0f;
 
     style.WindowPadding = ImVec2(12.0f, 12.0f);
     style.FramePadding = ImVec2(10.0f, 6.0f);
     style.ItemSpacing = ImVec2(10.0f, 8.0f);
     style.ItemInnerSpacing = ImVec2(6.0f, 6.0f);
     style.IndentSpacing = 18.0f;
-    style.ScrollbarSize = 14.0f;
+    style.ScrollbarSize = 8.0f;
     style.GrabMinSize = 10.0f;
 
     style.WindowBorderSize = 1.0f;
     style.FrameBorderSize = 0.0f;
     style.PopupBorderSize = 1.0f;
 
-    ImVec4* colors = style.Colors;
-    const ImVec4 accent = ImVec4(0.30f, 0.42f, 0.90f, 1.00f);
-    const ImVec4 accent_hover = ImVec4(0.36f, 0.48f, 0.94f, 1.00f);
-    const ImVec4 accent_active = ImVec4(0.24f, 0.34f, 0.80f, 1.00f);
-    const ImVec4 background = ImVec4(0.98f, 0.98f, 0.99f, 1.00f);
-    const ImVec4 surface = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-    const ImVec4 border = ImVec4(0.85f, 0.86f, 0.89f, 1.00f);
+    style.DockingSeparatorSize = 4.0f;
 
-    colors[ImGuiCol_WindowBg] = background;
-    colors[ImGuiCol_ChildBg] = surface;
-    colors[ImGuiCol_PopupBg] = surface;
-    colors[ImGuiCol_Border] = border;
-    colors[ImGuiCol_FrameBg] = surface;
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.94f, 0.95f, 0.98f, 1.00f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.90f, 0.92f, 0.97f, 1.00f);
-    colors[ImGuiCol_TitleBg] = background;
-    colors[ImGuiCol_TitleBgActive] = background;
-    colors[ImGuiCol_MenuBarBg] = background;
-    colors[ImGuiCol_ScrollbarBg] = background;
+    using namespace tokens;
+    ImVec4* colors = style.Colors;
+
+    colors[ImGuiCol_WindowBg] = bg_app;
+    colors[ImGuiCol_ChildBg] = bg_panel;
+    colors[ImGuiCol_PopupBg] = bg_panel_raised;
+    colors[ImGuiCol_Border] = border_hairline;
+    colors[ImGuiCol_BorderShadow] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    colors[ImGuiCol_FrameBg] = bg_field_sunken;
+    colors[ImGuiCol_FrameBgHovered] = bg_hover;
+    colors[ImGuiCol_FrameBgActive] = bg_active;
+    colors[ImGuiCol_TitleBg] = bg_panel_raised;
+    colors[ImGuiCol_TitleBgActive] = bg_panel_raised;
+    colors[ImGuiCol_TitleBgCollapsed] = bg_panel_raised;
+    colors[ImGuiCol_MenuBarBg] = bg_panel_raised;
+    colors[ImGuiCol_ScrollbarBg] = bg_panel;
+    colors[ImGuiCol_ScrollbarGrab] = bg_hover;
+    colors[ImGuiCol_ScrollbarGrabHovered] = bg_active;
+    colors[ImGuiCol_ScrollbarGrabActive] = accent;
     colors[ImGuiCol_CheckMark] = accent;
     colors[ImGuiCol_SliderGrab] = accent;
     colors[ImGuiCol_SliderGrabActive] = accent_active;
-    colors[ImGuiCol_Button] = ImVec4(0.93f, 0.94f, 0.97f, 1.00f);
-    colors[ImGuiCol_ButtonHovered] = accent_hover;
-    colors[ImGuiCol_ButtonActive] = accent_active;
-    colors[ImGuiCol_Header] = ImVec4(0.90f, 0.92f, 0.98f, 1.00f);
-    colors[ImGuiCol_HeaderHovered] = accent_hover;
-    colors[ImGuiCol_HeaderActive] = accent_active;
-    colors[ImGuiCol_Separator] = border;
+    colors[ImGuiCol_Button] = bg_panel_raised;
+    colors[ImGuiCol_ButtonHovered] = bg_hover;
+    colors[ImGuiCol_ButtonActive] = bg_active;
+    colors[ImGuiCol_Header] = bg_hover;
+    colors[ImGuiCol_HeaderHovered] = bg_hover;
+    colors[ImGuiCol_HeaderActive] = bg_active;
+    colors[ImGuiCol_Separator] = border_hairline;
     colors[ImGuiCol_SeparatorHovered] = accent;
     colors[ImGuiCol_SeparatorActive] = accent_active;
-    colors[ImGuiCol_ResizeGrip] = ImVec4(0.85f, 0.86f, 0.89f, 0.60f);
+    colors[ImGuiCol_ResizeGrip] = ImVec4(border_subtle.x, border_subtle.y, border_subtle.z, 0.30f);
     colors[ImGuiCol_ResizeGripHovered] = accent_hover;
     colors[ImGuiCol_ResizeGripActive] = accent_active;
-    colors[ImGuiCol_Tab] = background;
-    colors[ImGuiCol_TabHovered] = accent_hover;
-    colors[ImGuiCol_TabSelected] = accent;
+    colors[ImGuiCol_Tab] = bg_panel_raised;
+    colors[ImGuiCol_TabHovered] = bg_hover;
+    colors[ImGuiCol_TabSelected] = bg_panel_raised;
     colors[ImGuiCol_TabSelectedOverline] = accent;
+    colors[ImGuiCol_TabDimmed] = bg_panel_raised;
+    colors[ImGuiCol_TabDimmedSelected] = bg_panel_raised;
+    colors[ImGuiCol_TabDimmedSelectedOverline] = border_subtle;
     colors[ImGuiCol_DockingPreview] = ImVec4(accent.x, accent.y, accent.z, 0.40f);
+    colors[ImGuiCol_DockingEmptyBg] = bg_app;
     colors[ImGuiCol_PlotLines] = accent;
     colors[ImGuiCol_PlotHistogram] = accent;
-    colors[ImGuiCol_TextSelectedBg] = ImVec4(accent.x, accent.y, accent.z, 0.30f);
+    colors[ImGuiCol_TextSelectedBg] = ImVec4(accent.x, accent.y, accent.z, 0.35f);
+    colors[ImGuiCol_Text] = text_primary;
+    colors[ImGuiCol_TextDisabled] = text_disabled;
+    colors[ImGuiCol_NavCursor] = accent;
 }
 
 void load_fonts(ImGuiIO& io, float base_size)
@@ -85,6 +96,11 @@ void load_fonts(ImGuiIO& io, float base_size)
     main_config.OversampleH = 2;
     main_config.OversampleV = 2;
     io.Fonts->AddFontFromFileTTF(inter_path.c_str(), base_size, &main_config);
+
+    ImFontConfig mono_config;
+    mono_config.OversampleH = 2;
+    mono_config.OversampleV = 2;
+    g_mono_font = io.Fonts->AddFontFromFileTTF(inter_path.c_str(), base_size * 0.85f, &mono_config);
 
     ImFontConfig icon_config;
     icon_config.OversampleH = 2;
@@ -98,8 +114,12 @@ void load_fonts(ImGuiIO& io, float base_size)
         0xe0b2, 0xe0b2,
         0xe0f6, 0xe0f6,
         0xe0f9, 0xe0f9,
+        0xe112, 0xe113,
+        0xe11a, 0xe11c,
         0xe13c, 0xe13c,
         0xe14d, 0xe14d,
+        0xe167, 0xe167,
+        0xe1b2, 0xe1b2,
         0xe247, 0xe247,
         0};
     g_icon_font = io.Fonts->AddFontFromFileTTF(icon_path.c_str(), base_size, &icon_config, icon_ranges);

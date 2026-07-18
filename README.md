@@ -6,7 +6,8 @@ Native Windows 10/11 GLSL shader golfer — minify a Shadertoy-style
 µShader pairs a tokenizer-based Rust minification engine with a
 native SDL3 + OpenGL + Dear ImGui application shell: paste a shader,
 golf it, and immediately verify it renders identically in the live
-viewport.
+viewport. The UI is a dark, Adobe Premiere Pro–style editing
+workspace with a custom borderless window frame.
 
 ![uShader screenshot: Source, Golfed, and Viewport panels](docs/screenshot.png)
 

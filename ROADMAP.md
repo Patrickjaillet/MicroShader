@@ -25,7 +25,10 @@ Dear ImGui.
 These conventions apply to every phase below and must never regress.
 
 - [ ] General language only English
-- [ ] Theme White only
+- [x] Visual theme: Adobe Premiere Pro–style dark UI (see Phase 10).
+      This supersedes the original "white theme only" decision below;
+      the white theme is kept as historical record only.
+- [x] ~~Theme White only~~ — superseded by Phase 10 (v1.2.x)
 - [ ] Source language entirely in English (variable names, functions, classes)
 - [ ] No comments in the source code
 - [ ] Strict Windows 10/11 compatibility only
@@ -54,7 +57,8 @@ These conventions apply to every phase below and must never regress.
 
 - Format: `MAJOR.MINOR.PATCH.BUILD`
 - `MAJOR.MINOR` maps 1:1 to the Phase number below (Phase 0 → `0.1.x`,
-  ... Phase 8 → `1.0.x`).
+  ... Phase 8 → `1.0.x`). Phase 9 is unscheduled/no fixed version;
+  numbered phases resume the scheme from Phase 10 → `1.1.x`.
 - `PATCH` increments for fixes/adjustments within a phase.
 - `BUILD` auto-increments on every CI/local release build (generated,
   never hand-edited).
@@ -80,7 +84,7 @@ C ABI bridge (new, minimal, no comments)
         ▼
 C++ application (SDL3 + OpenGL)
    ├─ Renderer      : fullscreen-triangle Shadertoy-style runner, single pass only
-   ├─ UI shell       : Dear ImGui (docking), white theme, resizable panels
+   ├─ UI shell       : Dear ImGui (docking), Premiere-style dark theme, resizable panels
    ├─ Text editor    : ImGui-based widget with GLSL syntax highlighting
    └─ About / Setup  : copyright panel, Inno Setup installer, icons
 ```
@@ -265,6 +269,176 @@ Deliberately out of scope until requested explicitly:
       `THIRD_PARTY_NOTICES.md` for the FFmpeg (GPL) attribution this
       bundling requires.
 
+### Phase 10 — v1.2.x — Adobe Premiere Pro–style UI/UX overhaul (dark theme)
+
+Full replacement of the current light, stock-ImGui-derived look with a
+dedicated dark visual identity modeled on Adobe Premiere Pro's editing
+workspace. This is a first-class deliverable, at the same level as
+Phase 3's original theme work — not a recolor pass. Every window,
+control, and asset must be touched; nothing may still read as
+"default ImGui" or as the Phase 3 white theme when this phase closes.
+
+**Supersedes**: the Phase 3 white theme and the "white theme only /
+no dark theme" entries in sections 2 and 7. `apply_theme()` becomes
+the single dark theme; no light/dark toggle is introduced (still no
+`i18n`-style user-facing theme switch — one theme, deliberately, as
+before, just a different one).
+
+#### 10.1 — Design tokens (`src/ui/theme.cpp`, new `theme_tokens.h`)
+
+Introduce a named token table so every color used anywhere in the UI
+traces back to one of these, no ad-hoc `ImVec4` literals scattered
+across panels:
+
+| Token              | Hex       | Usage                                                        |
+|--------------------|-----------|---------------------------------------------------------------|
+| `bg.app`           | `#1E1E1E` | Outer window / dockspace background                          |
+| `bg.panel`         | `#232323` | Panel body background (Source, Golfed, Stats)                |
+| `bg.panel.raised`  | `#2B2B2B` | Toolbars, menu bar, panel headers                             |
+| `bg.field.sunken`  | `#1B1B1B` | Text editor body, input fields, viewport letterbox            |
+| `bg.field.deepest` | `#000000` | Viewport render surface itself (Program-Monitor black)        |
+| `bg.hover`         | `#3D3D3D` | Row/button/tab hover state                                    |
+| `bg.active`        | `#4A4A4A` | Row/button/tab pressed state                                  |
+| `border.hairline`  | `#000000` | 1px separators between panels (near-black, not gray)          |
+| `border.subtle`    | `#454545` | Internal dividers inside a panel (e.g. stats rows)            |
+| `accent`           | `#2680EB` | Primary accent — active tab underline, focus ring, run button |
+| `accent.hover`     | `#4B9EFF` | Accent hover                                                  |
+| `accent.active`    | `#1B5FBD` | Accent pressed                                                |
+| `text.primary`     | `#E6E6E6` | Body text, labels                                             |
+| `text.secondary`   | `#9E9E9E` | Muted labels, timecodes, panel sub-headers                    |
+| `text.disabled`    | `#5C5C5C` | Disabled controls                                             |
+| `status.ok`        | `#4CAF50` | Shader compiled successfully                                  |
+| `status.warning`   | `#E9A23B` | Non-fatal golf warning                                        |
+| `status.error`     | `#E5484D` | Compile/link error                                             |
+
+All must pass WCAG AA contrast for `text.primary`/`text.secondary`
+against `bg.panel` and `bg.app`; verify with a contrast-ratio check
+before closing this sub-phase.
+
+#### 10.2 — Global style metrics (replace current Phase 3 rounding)
+
+- Corner radius: `2px` everywhere (`WindowRounding`, `FrameRounding`,
+  `TabRounding`, `PopupRounding`, `GrabRounding` all reduced from the
+  current `4–8px` to `2px`) — Premiere is almost square, not pill-shaped.
+- `WindowBorderSize` / `PopupBorderSize`: keep at `1px` but recolor to
+  `border.hairline` (near-black, not light gray).
+- Panel header height fixed at `24px`; tab height fixed at `28px`, to
+  match Premiere's compact chrome.
+- Scrollbars: reduce `ScrollbarSize` from `14px` to `8px`, flat, no
+  rounding, `bg.hover` on hover only (invisible at rest at low
+  contrast, per Premiere).
+- Splitters/resize grips: `4px` hit zone, invisible at rest, painted
+  `accent` only while hovered/dragged (Premiere's panel-resize
+  behavior, not the current always-visible gray grip).
+
+#### 10.3 — Custom window chrome
+
+- Replace the default OS title bar with an SDL3 borderless window +
+  custom hit-test region: `bg.field.sunken` bar, app icon (from the
+  Phase 10.6 recolor) at the far left, window title centered-left in
+  `text.secondary`, flat minimize/maximize/close glyph buttons at the
+  far right (`text.secondary` idle, `bg.hover` hit background,
+  close button turns `status.error` on hover — standard Windows dark
+  app convention, matches Premiere's own chrome).
+- Menu bar sits directly under the title bar, `bg.panel.raised`, flat
+  (no border), hover row highlight `bg.hover` with a `2px` accent bar
+  on the left edge of the hovered item.
+
+#### 10.4 — Panels, tabs, and controls (touch every panel listed in
+section 5: Source, Golfed, Viewport, Stats, golf controls, About)
+
+- Tabs: flat rectangle, `bg.panel.raised` idle, `bg.hover` hover,
+  active tab gets a `2px` `accent` underline (no filled pill, no glow
+  — this is the single most recognizable Premiere tab cue).
+- Panel section headers (e.g. "REDUCTION STATS", "GOLF PASSES"):
+  uppercase, letter-spaced, `text.secondary`, `11px`, sitting on
+  `bg.panel.raised`, not `bg.panel` — visually pins the header the
+  way Premiere pins its panel toolbars.
+- Buttons: flat rectangle, `2px` radius, `bg.hover`/`bg.active` for
+  secondary buttons; the primary "Run golf" button is solid `accent`
+  fill with the existing play icon, `accent.hover`/`accent.active` on
+  interaction — the one clearly "primary" surface in the whole UI.
+- Checkboxes: flat `12px` square, `border.subtle` idle, `accent` fill
+  with a white check glyph when active — not the current circular
+  ImGui check.
+- Sliders (aggressive-level, any future numeric control): thin `2px`
+  groove on `bg.field.sunken`, small rectangular (not round) grab
+  handle filled `accent`.
+- Text inputs / protected-names field: `bg.field.sunken`, `1px`
+  `border.hairline`, `1px` `accent` focus ring on focus only.
+- Combo/dropdowns: flat, `bg.field.sunken` body, chevron icon in
+  `text.secondary`, open list styled like the menu bar (hover row +
+  left accent bar).
+
+#### 10.5 — Text editor and viewport, Premiere-specific treatments
+
+- Source/Golfed editor body: `bg.field.sunken`, gutter (line numbers)
+  in `text.disabled` on `bg.panel`, current-line highlight a barely-
+  lighter `bg.hover` band, error-line highlight `status.error` at low
+  opacity (background wash, not full-saturation fill).
+- Viewport panel styled as a Program Monitor: render surface framed
+  by `bg.field.deepest` letterboxing regardless of window aspect,
+  transport row immediately below in `bg.panel.raised` with the
+  existing play/pause/stop icons recolored to `text.secondary` (idle)
+  / `accent` (active/pressed), and a monospace timecode readout
+  (reuse Inter but tabular-figure sized) in `text.secondary`.
+- Compile status indicator: small dot, filled `status.ok` /
+  `status.warning` / `status.error`, replacing the current plain-text
+  error banner as the primary at-a-glance signal (detailed log stays
+  as text below it).
+
+#### 10.6 — Icon and asset regeneration
+
+- Re-theme the existing Lucide icon glyphs: default state
+  `text.secondary`, hover `text.primary`, active `accent` — glyphs
+  are already vector (`lucide.ttf`), this is a color-state change in
+  `theme.cpp`/call sites, not a re-draw.
+- Regenerate `assets/icons/app_source.png` → new `app.ico` /
+  `installer.ico`: same mark, recomposed on a `bg.app`-toned dark
+  tile with an `accent`-blue treatment of the glyph, so the taskbar
+  icon reads as "dark app" rather than the current light icon.
+- Regenerate `docs/logo.png` for the About panel on a dark card
+  background consistent with 10.7.
+- New reference assets under `docs/design/` (not shipped in the
+  installer, design-process artifacts only):
+  - `color-palette.svg` — every token in 10.1 as a labeled swatch.
+  - `ui-mockup-full.svg` — full-window mockup: title bar, menu bar,
+    Source/Golfed/Viewport three-panel layout, stats panel, in the
+    new palette, at the app's default window size.
+  - `icon-states.svg` — each reused icon glyph in idle/hover/active.
+
+#### 10.7 — About panel redesign
+
+- Rebuilt as a centered dark card (`bg.panel.raised` on `bg.app`),
+  logo top, app name + version, then copyright/email/website/
+  repository lines in `text.secondary` separated by `1px`
+  `border.subtle` hairlines — replacing the current plain list
+  layout with the same card treatment Premiere uses for its own
+  About dialog.
+
+#### 10.8 — Acceptance / verification
+
+- [x] Side-by-side screenshot check against a real Premiere Pro
+      panel (menu bar height, tab shape, panel header height, accent
+      usage) — no element should still visually match the Phase 3
+      white theme or a stock ImGui demo. Verified by visual review of
+      the built app against the described Premiere conventions (flat
+      rectangular tabs with accent underline, compact chrome, square
+      controls); not a pixel-level diff against an actual Premiere
+      Pro screenshot.
+- [x] Every color in `theme.cpp` traces to a token in 10.1 — no
+      inline literal `ImVec4` left in panel code (the two exceptions
+      are fully transparent `ImVec4(0,0,0,0)` push colors for the
+      borderless title-bar buttons, which is not a themed color).
+- [x] Contrast check for `text.primary` / `text.secondary` against
+      `bg.panel` and `bg.app` passes WCAG AA (verified via a WCAG
+      relative-luminance script: all four pairs ≥ 5.8:1, well above
+      the 4.5:1 AA threshold).
+- [x] `docs/screenshot.png` retaken in the new theme.
+- [x] `README.md` updated with the new screenshot and a short note on
+      the visual redesign.
+- [x] `CHANGELOG.md` entry for `v1.2.1`, tag `v1.2.1`.
+
 ---
 
 ## 7. Explicitly out of scope for v1.0
@@ -273,7 +447,9 @@ Deliberately out of scope until requested explicitly:
   `iChannel` wiring, no shared "Common" pass. µShader golfs and
   previews a single `mainImage` fragment shader only. This is a
   deliberate design rejection, not a "later" item.
-- Dark theme / any theme other than white
+- ~~Dark theme / any theme other than white~~ — superseded by
+  Phase 10 (v1.1.x); still only one theme at a time, no user-facing
+  theme toggle, just a different single theme
 - Any language other than English in the UI or source
 - Any AI-tool attribution anywhere in the repository, commit history,
   or contributors list

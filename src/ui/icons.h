@@ -15,3 +15,6 @@
 #define ICON_INFO "\xee\x83\xb9"
 #define ICON_CIRCLE "\xee\x81\xb6"
 #define ICON_CIRCLE_STOP "\xee\x82\x83"
+#define ICON_MINUS "\xee\x84\x9c"
+#define ICON_SQUARE "\xee\x85\xa7"
+#define ICON_X "\xee\x86\xb2"

@@ -32,7 +32,7 @@ void render_golf_controls(GolfPassToggles& toggles, std::string& protected_names
     ImGui::Checkbox("Aggressive golf", &toggles.aggressive);
 
     ImGui::BeginDisabled(!toggles.aggressive);
-    if (ImGui::CollapsingHeader("Passes"))
+    if (ImGui::CollapsingHeader("PASSES"))
     {
         ImGui::Columns(2, nullptr, false);
         ImGui::Checkbox("Dead locals", &toggles.eliminate_dead_locals);

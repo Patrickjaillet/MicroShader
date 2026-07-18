@@ -199,6 +199,9 @@ add_custom_command(
         ${CMAKE_CURRENT_SOURCE_DIR}/docs/logo.png
         $<TARGET_FILE_DIR:ushader>/assets/branding/logo.png
     COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/app_icon_source.png
+        $<TARGET_FILE_DIR:ushader>/assets/branding/app_icon.png
+    COMMAND ${CMAKE_COMMAND} -E copy
         ${FFMPEG_EXE}
         $<TARGET_FILE_DIR:ushader>/ffmpeg.exe
 )
