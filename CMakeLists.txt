@@ -80,6 +80,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(imguicolortextedit)
 
+FetchContent_Declare(
+    gifh
+    GIT_REPOSITORY https://github.com/charlietangora/gif-h.git
+    GIT_TAG master
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(gifh)
+
 add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -136,6 +144,8 @@ add_executable(ushader
     src/platform/file_dialog.cpp
     src/platform/screenshot.cpp
     src/platform/stb_impl.cpp
+    src/platform/utf8.cpp
+    src/platform/recorder.cpp
     src/ui/theme.cpp
     src/ui/layout.cpp
     src/ui/glsl_language.cpp
@@ -149,6 +159,7 @@ add_executable(ushader
 target_include_directories(ushader PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}/generated
     ${stb_SOURCE_DIR}
+    ${gifh_SOURCE_DIR}
 )
 
 target_link_libraries(ushader PRIVATE
@@ -159,6 +170,10 @@ target_link_libraries(ushader PRIVATE
     comdlg32
     rust_core
 )
+
+if(MSVC)
+    target_link_options(ushader PRIVATE "/SUBSYSTEM:WINDOWS" "/ENTRY:mainCRTStartup")
+endif()
 
 add_custom_command(
     TARGET ushader POST_BUILD

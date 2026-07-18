@@ -6,14 +6,14 @@
 
 #include <cstdio>
 #include <ctime>
-#include <fstream>
 #include <optional>
 #include <regex>
-#include <sstream>
 #include <string>
+#include <vector>
 
 #include "platform/file_dialog.h"
 #include "platform/paths.h"
+#include "platform/recorder.h"
 #include "platform/screenshot.h"
 #include "render/default_shader.h"
 #include "render/framebuffer.h"
@@ -35,6 +35,10 @@ namespace
 {
     const wchar_t kGlslFilter[] = L"GLSL shaders (*.glsl)\0*.glsl\0All files (*.*)\0*.*\0";
     const wchar_t kPngFilter[] = L"PNG image (*.png)\0*.png\0";
+    const wchar_t kGifFilter[] = L"GIF animation (*.gif)\0*.gif\0";
+    const wchar_t kMp4Filter[] = L"MP4 video (*.mp4)\0*.mp4\0";
+    const wchar_t kWebMFilter[] = L"WebM video (*.webm)\0*.webm\0";
+    const int kRecordFps = 24;
 
     int parse_error_line_number(const std::string& log)
     {
@@ -59,29 +63,6 @@ namespace
             return "Line " + std::to_string(line) + ": ";
         }
         return std::string();
-    }
-
-    std::string read_text_file(const std::string& path)
-    {
-        std::ifstream file(path, std::ios::binary);
-        if (!file)
-        {
-            return std::string();
-        }
-        std::ostringstream buffer;
-        buffer << file.rdbuf();
-        return buffer.str();
-    }
-
-    bool write_text_file(const std::string& path, const std::string& content)
-    {
-        std::ofstream file(path, std::ios::binary);
-        if (!file)
-        {
-            return false;
-        }
-        file << content;
-        return static_cast<bool>(file);
     }
 }
 
@@ -171,6 +152,11 @@ int main(int argc, char* argv[])
     GolfPassToggles pass_toggles;
     std::string protected_names;
     UshaderGolfStats golf_stats{};
+
+    ViewportRecorder recorder;
+    RecordingFormat record_format = RecordingFormat::Gif;
+    bool start_recording_requested = false;
+    Uint64 last_capture_ticks = 0;
 
     auto icon_button = [&](const char* icon, const char* label)
     {
@@ -323,7 +309,7 @@ int main(int argc, char* argv[])
             std::optional<std::string> path = show_open_file_dialog(window, kGlslFilter, L"glsl");
             if (path.has_value())
             {
-                source_editor.SetText(read_text_file(*path));
+                source_editor.SetText(read_utf8_file(*path));
                 run_golf_action();
             }
         }
@@ -333,7 +319,7 @@ int main(int argc, char* argv[])
             std::optional<std::string> path = show_save_file_dialog(window, kGlslFilter, L"glsl", L"shader.glsl");
             if (path.has_value())
             {
-                write_text_file(*path, source_editor.GetText());
+                write_utf8_file(*path, source_editor.GetText());
             }
         }
         render_golf_controls(pass_toggles, protected_names);
@@ -357,7 +343,7 @@ int main(int argc, char* argv[])
             std::optional<std::string> path = show_save_file_dialog(window, kGlslFilter, L"glsl", L"shader.glsl");
             if (path.has_value())
             {
-                write_text_file(*path, golfed_text);
+                write_utf8_file(*path, golfed_text);
             }
         }
         render_stats_panel(golf_stats, golfed_text.size());
@@ -375,6 +361,61 @@ int main(int argc, char* argv[])
             {
                 save_framebuffer_png(golfed_viewport_fb, *path);
             }
+        }
+
+        ImGui::SameLine();
+        static const char* kRecordFormatLabels[] = {"GIF", "MP4", "WebM"};
+        int record_format_index = static_cast<int>(record_format);
+        ImGui::SetNextItemWidth(80.0f);
+        ImGui::BeginDisabled(recorder.is_recording());
+        if (ImGui::Combo("##record_format", &record_format_index, kRecordFormatLabels, 3))
+        {
+            record_format = static_cast<RecordingFormat>(record_format_index);
+        }
+        ImGui::EndDisabled();
+
+        bool record_needs_ffmpeg = record_format != RecordingFormat::Gif;
+        bool record_disabled = record_needs_ffmpeg && !ffmpeg_available();
+
+        ImGui::SameLine();
+        ImGui::BeginDisabled(record_disabled);
+        if (!recorder.is_recording())
+        {
+            if (icon_button(ICON_CIRCLE, "Record"))
+            {
+                start_recording_requested = true;
+            }
+        }
+        else
+        {
+            if (icon_button(ICON_CIRCLE_STOP, "Stop"))
+            {
+                const wchar_t* filter = record_format == RecordingFormat::Gif ? kGifFilter
+                    : record_format == RecordingFormat::Mp4 ? kMp4Filter : kWebMFilter;
+                const wchar_t* ext = record_format == RecordingFormat::Gif ? L"gif"
+                    : record_format == RecordingFormat::Mp4 ? L"mp4" : L"webm";
+                const wchar_t* default_name = record_format == RecordingFormat::Gif ? L"recording.gif"
+                    : record_format == RecordingFormat::Mp4 ? L"recording.mp4" : L"recording.webm";
+                std::optional<std::string> path = show_save_file_dialog(window, filter, ext, default_name);
+                if (path.has_value())
+                {
+                    recorder.stop(*path);
+                }
+                else
+                {
+                    recorder.cancel();
+                }
+            }
+        }
+        ImGui::EndDisabled();
+        if (record_disabled && ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Requires ffmpeg on PATH");
+        }
+        if (recorder.is_recording())
+        {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.80f, 0.20f, 0.20f, 1.0f), "REC %d frames", recorder.frame_count());
         }
 
         if (!compile_error.empty())
@@ -450,6 +491,27 @@ int main(int argc, char* argv[])
         else
         {
             draw_panel(golfed_runner, golfed_viewport_fb, avail);
+        }
+
+        if (start_recording_requested)
+        {
+            recorder.start(record_format, golfed_viewport_fb.width(), golfed_viewport_fb.height(), kRecordFps);
+            start_recording_requested = false;
+            last_capture_ticks = 0;
+        }
+
+        if (recorder.is_recording())
+        {
+            Uint64 capture_interval_ms = static_cast<Uint64>(1000 / kRecordFps);
+            if (now_ticks - last_capture_ticks >= capture_interval_ms)
+            {
+                std::vector<unsigned char> pixels;
+                if (golfed_viewport_fb.read_pixels(pixels))
+                {
+                    recorder.add_frame(pixels.data(), golfed_viewport_fb.width(), golfed_viewport_fb.height());
+                }
+                last_capture_ticks = now_ticks;
+            }
         }
 
         ImGui::End();

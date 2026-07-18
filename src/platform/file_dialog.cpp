@@ -8,6 +8,8 @@
 #include <SDL3/SDL.h>
 #include <cwchar>
 
+#include "utf8.h"
+
 namespace
 {
     HWND native_window_handle(SDL_Window* window)
@@ -18,18 +20,6 @@ namespace
         }
         SDL_PropertiesID props = SDL_GetWindowProperties(window);
         return static_cast<HWND>(SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
-    }
-
-    std::string wide_to_utf8(const wchar_t* wide)
-    {
-        int size = WideCharToMultiByte(CP_UTF8, 0, wide, -1, nullptr, 0, nullptr, nullptr);
-        if (size <= 0)
-        {
-            return std::string();
-        }
-        std::string result(static_cast<size_t>(size) - 1, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, wide, -1, result.data(), size, nullptr, nullptr);
-        return result;
     }
 }
 

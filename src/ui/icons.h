@@ -13,3 +13,5 @@
 #define ICON_DOWNLOAD "\xee\x82\xb2"
 #define ICON_CAMERA "\xee\x81\xa4"
 #define ICON_INFO "\xee\x83\xb9"
+#define ICON_CIRCLE "\xee\x81\xb6"
+#define ICON_CIRCLE_STOP "\xee\x82\x83"

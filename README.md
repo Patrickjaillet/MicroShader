@@ -31,6 +31,8 @@ viewport.
 - **Import/export**: open and save `.glsl` files, copy the golfed
   output to the clipboard, export in Shadertoy format, and capture
   the viewport to a PNG screenshot.
+- **Viewport recording**: capture the running shader to an animated
+  GIF, or to MP4/WebM when `ffmpeg` is available on `PATH`.
 
 ## Installing
 

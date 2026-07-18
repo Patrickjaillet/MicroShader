@@ -2,6 +2,31 @@
 
 All notable changes to µShader are documented in this file.
 
+## [1.1.0] - 2026-07-18
+
+### Added
+
+- Viewport recording: capture the running shader directly to an
+  animated GIF, or to MP4/WebM when `ffmpeg` is available on `PATH`.
+  A Record/Stop control and format selector sit in the Viewport
+  panel toolbar; MP4/WebM are grayed out with an explanatory tooltip
+  when `ffmpeg` isn't found.
+
+### Fixed
+
+- `Open`/`Save` for `.glsl` files used narrow-path `std::ifstream`/
+  `std::ofstream`, which silently fail on Windows for paths containing
+  non-ASCII characters (e.g. this project's own `µShader` folder).
+  Replaced with UTF-8-aware helpers built on `_wfopen_s`; verified
+  with a round-trip write/read through a `µ`-containing path.
+- The application launched with a console window behind the main
+  window. Switched the executable to the Windows subsystem so only
+  the GUI window appears.
+- Each docked panel (Source, Golfed, Viewport) showed a small
+  dropdown arrow exposing a "Hide tab bar" menu that could leave a
+  panel without a visible tab. Disabled that menu button on all
+  panel dock nodes.
+
 ## [1.0.0] - 2026-07-18
 
 First stable release.

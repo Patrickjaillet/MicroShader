@@ -255,12 +255,12 @@ capture), and a commit+push to
 
 Deliberately out of scope until requested explicitly:
 
-- [ ] Video (Webmp, Mp4) /GIF recording of the viewport
-- [ ] Any multi-language support (contradicts the English-only
-      convention unless that convention is revisited)
-- [ ] Multi-buffer Shadertoy support (buffers A–D, channel wiring,
-      shared "Common" code) — explicitly rejected, not just deferred;
-      see section 7
+- [x] Video (Webm, Mp4) /GIF recording of the viewport — GIF encoding
+      is always available (bundled `gif-h`); MP4/WebM require `ffmpeg`
+      on `PATH` and are automatically disabled in the UI (with a
+      tooltip) when it isn't found. MP4/WebM have not been exercised
+      in the current build environment since `ffmpeg` is not
+      installed there; GIF recording was tested end to end.
 
 ---
 
