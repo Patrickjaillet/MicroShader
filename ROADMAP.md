@@ -57,8 +57,10 @@ These conventions apply to every phase below and must never regress.
 
 - Format: `MAJOR.MINOR.PATCH.BUILD`
 - `MAJOR.MINOR` maps 1:1 to the Phase number below (Phase 0 → `0.1.x`,
-  ... Phase 8 → `1.0.x`). Phase 9 is unscheduled/no fixed version;
-  numbered phases resume the scheme from Phase 10 → `1.1.x`.
+  ... Phase 8 → `1.0.x`). Phase 9 is unscheduled/no fixed version; it
+  consumed `1.1.x`/`1.2.0` outside the phase-number scheme (viewport
+  recording, then bundled ffmpeg), so Phase 10 lands on `1.2.x`
+  instead of the `1.1.x` this scheme would otherwise predict.
 - `PATCH` increments for fixes/adjustments within a phase.
 - `BUILD` auto-increments on every CI/local release build (generated,
   never hand-edited).
@@ -448,7 +450,7 @@ section 5: Source, Golfed, Viewport, Stats, golf controls, About)
   previews a single `mainImage` fragment shader only. This is a
   deliberate design rejection, not a "later" item.
 - ~~Dark theme / any theme other than white~~ — superseded by
-  Phase 10 (v1.1.x); still only one theme at a time, no user-facing
+  Phase 10 (v1.2.x); still only one theme at a time, no user-facing
   theme toggle, just a different single theme
 - Any language other than English in the UI or source
 - Any AI-tool attribution anywhere in the repository, commit history,
