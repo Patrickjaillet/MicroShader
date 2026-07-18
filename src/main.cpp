@@ -225,7 +225,7 @@ int main(int argc, char* argv[])
     bool start_recording_requested = false;
     Uint64 last_capture_ticks = 0;
 
-    auto icon_button = [&](const char* icon, const char* label)
+    auto icon_button_ex = [&](const char* icon, const char* label, bool primary)
     {
         ImGuiStyle& style = ImGui::GetStyle();
         ImVec2 start = ImGui::GetCursorScreenPos();
@@ -239,15 +239,28 @@ int main(int argc, char* argv[])
             style.FramePadding.x * 2.0f + icon_size.x + gap + label_size.x,
             style.FramePadding.y * 2.0f + ImGui::GetFontSize());
 
+        if (primary)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, tokens::accent);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tokens::accent_hover);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, tokens::accent_active);
+        }
+
         ImGui::PushID(label);
         bool pressed = ImGui::Button("##icon_button", button_size);
         bool hovered = ImGui::IsItemHovered();
         bool active = ImGui::IsItemActive();
         ImGui::PopID();
 
-        ImVec4 icon_color = active ? tokens::accent : (hovered ? tokens::text_primary : tokens::text_secondary);
+        if (primary)
+        {
+            ImGui::PopStyleColor(3);
+        }
+
+        ImVec4 icon_color = primary ? tokens::text_primary
+            : (active ? tokens::accent : (hovered ? tokens::text_primary : tokens::text_secondary));
         ImU32 icon_color_u32 = ImGui::GetColorU32(icon_color);
-        ImU32 text_color_u32 = ImGui::GetColorU32(ImGuiCol_Text);
+        ImU32 text_color_u32 = primary ? ImGui::GetColorU32(tokens::text_primary) : ImGui::GetColorU32(ImGuiCol_Text);
 
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
         ImVec2 icon_pos(start.x + style.FramePadding.x, start.y + (button_size.y - icon_size.y) * 0.5f);
@@ -258,6 +271,11 @@ int main(int argc, char* argv[])
         draw_list->AddText(label_pos, text_color_u32, label);
 
         return pressed;
+    };
+
+    auto icon_button = [&](const char* icon, const char* label)
+    {
+        return icon_button_ex(icon, label, false);
     };
 
     auto run_golf_action = [&]()
@@ -493,7 +511,7 @@ int main(int argc, char* argv[])
         render_about_popup(show_about, logo_texture);
 
         ImGui::Begin(kSourceWindowTitle);
-        if (icon_button(ICON_PLAY, "Run golf"))
+        if (icon_button_ex(ICON_PLAY, "Run golf", true))
         {
             run_golf_action();
         }

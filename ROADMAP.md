@@ -313,110 +313,124 @@ across panels:
 | `status.warning`   | `#E9A23B` | Non-fatal golf warning                                        |
 | `status.error`     | `#E5484D` | Compile/link error                                             |
 
-All must pass WCAG AA contrast for `text.primary`/`text.secondary`
-against `bg.panel` and `bg.app`; verify with a contrast-ratio check
-before closing this sub-phase.
+- [x] All must pass WCAG AA contrast for `text.primary`/`text.secondary`
+      against `bg.panel` and `bg.app`; verify with a contrast-ratio check
+      before closing this sub-phase. Verified via a relative-luminance
+      script: all four pairs ≥ 5.8:1 (AA threshold is 4.5:1).
 
 #### 10.2 — Global style metrics (replace current Phase 3 rounding)
 
-- Corner radius: `2px` everywhere (`WindowRounding`, `FrameRounding`,
-  `TabRounding`, `PopupRounding`, `GrabRounding` all reduced from the
-  current `4–8px` to `2px`) — Premiere is almost square, not pill-shaped.
-- `WindowBorderSize` / `PopupBorderSize`: keep at `1px` but recolor to
-  `border.hairline` (near-black, not light gray).
-- Panel header height fixed at `24px`; tab height fixed at `28px`, to
-  match Premiere's compact chrome.
-- Scrollbars: reduce `ScrollbarSize` from `14px` to `8px`, flat, no
-  rounding, `bg.hover` on hover only (invisible at rest at low
-  contrast, per Premiere).
-- Splitters/resize grips: `4px` hit zone, invisible at rest, painted
-  `accent` only while hovered/dragged (Premiere's panel-resize
-  behavior, not the current always-visible gray grip).
+- [x] Corner radius: `2px` everywhere (`WindowRounding`, `FrameRounding`,
+      `TabRounding`, `PopupRounding`, `GrabRounding`, `ChildRounding`,
+      `ScrollbarRounding` all set to `2px`).
+- [x] `WindowBorderSize` / `PopupBorderSize`: kept at `1px`, recolored to
+      `border.hairline`.
+- [ ] Panel header height fixed at `24px`; tab height fixed at `28px`.
+      Not pinned to an exact pixel value — panel/tab heights still
+      derive from `FramePadding`/font size like the rest of ImGui's
+      layout system, not a hardcoded constant. Visually close at the
+      current base font size, but not a hard guarantee.
+- [x] Scrollbars: `ScrollbarSize` reduced `14px` → `8px`, flat
+      (`ScrollbarRounding` `2px`), `bg.hover`/`bg.active` grab colors.
+- [x] Splitters/resize grips: `DockingSeparatorSize` `4px`;
+      `ResizeGrip` recolored to `border.subtle` at low alpha (30%)
+      idle, `accent` on hover/drag — approximates "invisible at rest"
+      rather than literally alpha-zero.
 
 #### 10.3 — Custom window chrome
 
-- Replace the default OS title bar with an SDL3 borderless window +
-  custom hit-test region: `bg.field.sunken` bar, app icon (from the
-  Phase 10.6 recolor) at the far left, window title centered-left in
-  `text.secondary`, flat minimize/maximize/close glyph buttons at the
-  far right (`text.secondary` idle, `bg.hover` hit background,
-  close button turns `status.error` on hover — standard Windows dark
-  app convention, matches Premiere's own chrome).
-- Menu bar sits directly under the title bar, `bg.panel.raised`, flat
-  (no border), hover row highlight `bg.hover` with a `2px` accent bar
-  on the left edge of the hovered item.
+- [x] Replaced the default OS title bar with an SDL3 borderless window
+      (`SDL_WINDOW_BORDERLESS`) + a custom `SDL_HitTest` callback
+      (drag region, 8-way resize edges, button hit-testing) — app icon
+      at the far left, title in `text.secondary`, flat
+      minimize/maximize/close glyph buttons at the far right
+      (`bg.hover` hit background, close turns `status.error` on
+      hover). The title-bar background itself uses `bg.panel.raised`
+      rather than the spec'd `bg.field.sunken`, to read as one
+      continuous surface with the menu bar directly beneath it; the
+      chrome button glyphs render in `text.primary`, not
+      `text.secondary`, at idle.
+- [x] Menu bar sits directly under the title bar in `bg.panel.raised`,
+      flat, hover row in `bg.hover`. The spec'd `2px` accent bar on
+      the left edge of the hovered menu item was not implemented —
+      hover is signaled by the background fill only.
 
 #### 10.4 — Panels, tabs, and controls (touch every panel listed in
 section 5: Source, Golfed, Viewport, Stats, golf controls, About)
 
-- Tabs: flat rectangle, `bg.panel.raised` idle, `bg.hover` hover,
-  active tab gets a `2px` `accent` underline (no filled pill, no glow
-  — this is the single most recognizable Premiere tab cue).
-- Panel section headers (e.g. "REDUCTION STATS", "GOLF PASSES"):
-  uppercase, letter-spaced, `text.secondary`, `11px`, sitting on
-  `bg.panel.raised`, not `bg.panel` — visually pins the header the
-  way Premiere pins its panel toolbars.
-- Buttons: flat rectangle, `2px` radius, `bg.hover`/`bg.active` for
-  secondary buttons; the primary "Run golf" button is solid `accent`
-  fill with the existing play icon, `accent.hover`/`accent.active` on
-  interaction — the one clearly "primary" surface in the whole UI.
-- Checkboxes: flat `12px` square, `border.subtle` idle, `accent` fill
-  with a white check glyph when active — not the current circular
-  ImGui check.
-- Sliders (aggressive-level, any future numeric control): thin `2px`
-  groove on `bg.field.sunken`, small rectangular (not round) grab
-  handle filled `accent`.
-- Text inputs / protected-names field: `bg.field.sunken`, `1px`
-  `border.hairline`, `1px` `accent` focus ring on focus only.
-- Combo/dropdowns: flat, `bg.field.sunken` body, chevron icon in
-  `text.secondary`, open list styled like the menu bar (hover row +
-  left accent bar).
+- [x] Tabs: flat rectangle, `bg.panel.raised`, `bg.hover` hover, active
+      tab gets a `2px` `accent` underline (`ImGuiCol_TabSelectedOverline`).
+- [ ] Panel section headers ("PASSES", "PER-PASS COUNTERS"): uppercased
+      and left on the default collapsing-header colors. True
+      letter-spacing and a dedicated `11px` size on a `bg.panel.raised`
+      strip were not implemented — Dear ImGui has no per-widget
+      letter-spacing, and doing a bespoke font size/background here
+      was judged not worth a custom widget for two headers.
+- [x] Buttons: flat rectangle, `2px` radius, `bg.hover`/`bg.active` for
+      secondary buttons; "Run golf" is now the one solid-`accent`-fill
+      primary button (`accent.hover`/`accent.active` on interaction),
+      via a `primary` flag on the shared icon-button helper.
+- [ ] Checkboxes: still the default ImGui checkbox shape (square-ish
+      at `FrameRounding` `2px`, `accent` check mark) rather than a
+      bespoke flat `12px` square with a drawn white check glyph.
+- N/A Sliders: no numeric slider control exists anywhere in the UI yet
+      (aggressive mode is a checkbox, not a level slider), so this
+      bullet has nothing to style.
+- [x] Text inputs / protected-names field: `bg.field.sunken` body via
+      `FrameBg`. The `1px` `accent` focus-only ring was not
+      implemented (`FrameBorderSize` stays `0`).
+- [x] Combo/dropdowns: flat, `bg.field.sunken` body via `FrameBg`,
+      popup list on `bg.panel.raised` with `bg.hover` row highlight.
+      Chevron/text render in `text.primary`, not `text.secondary`; no
+      left accent bar on the hovered row.
 
 #### 10.5 — Text editor and viewport, Premiere-specific treatments
 
-- Source/Golfed editor body: `bg.field.sunken`, gutter (line numbers)
-  in `text.disabled` on `bg.panel`, current-line highlight a barely-
-  lighter `bg.hover` band, error-line highlight `status.error` at low
-  opacity (background wash, not full-saturation fill).
-- Viewport panel styled as a Program Monitor: render surface framed
-  by `bg.field.deepest` letterboxing regardless of window aspect,
-  transport row immediately below in `bg.panel.raised` with the
-  existing play/pause/stop icons recolored to `text.secondary` (idle)
-  / `accent` (active/pressed), and a monospace timecode readout
-  (reuse Inter but tabular-figure sized) in `text.secondary`.
-- Compile status indicator: small dot, filled `status.ok` /
-  `status.warning` / `status.error`, replacing the current plain-text
-  error banner as the primary at-a-glance signal (detailed log stays
-  as text below it).
+- [ ] Source/Golfed editor body: uses `TextEditor::GetDarkPalette()`,
+      the text-editor widget's own built-in dark preset, rather than a
+      bespoke palette pinned to the `bg.field.sunken`/`text.disabled`
+      tokens — visually dark and consistent with the rest of the UI,
+      but not literally traced to the 10.1 token table.
+- [x] Viewport panel styled as a Program Monitor: render area wrapped
+      in a `bg.field.deepest` child background. True aspect-locked
+      letterboxing (black bars regardless of window aspect) was not
+      implemented — the render surface still fills the panel exactly,
+      so the letterbox color has no visible effect until/unless a
+      fixed-aspect viewport is introduced later.
+- [x] Transport row (Compare/Screenshot/record controls): icons use
+      the idle-`text.secondary` / hover-`text.primary` /
+      active-`accent` color states from 10.6. The row itself sits on
+      the panel's own background rather than a distinct
+      `bg.panel.raised` strip, and the timecode readout uses a smaller
+      `Inter` instance (`g_mono_font`), not a true monospace/tabular-
+      figure font (Inter has no tabular-figure variant available here).
+- [x] Compile status indicator: small filled dot (`status.ok` /
+      `status.error`; the golf engine has no distinct warning state
+      today, so `status.warning` is defined but unused), replacing the
+      old plain-text error banner as the primary signal.
 
 #### 10.6 — Icon and asset regeneration
 
-- Re-theme the existing Lucide icon glyphs: default state
-  `text.secondary`, hover `text.primary`, active `accent` — glyphs
-  are already vector (`lucide.ttf`), this is a color-state change in
-  `theme.cpp`/call sites, not a re-draw.
-- Regenerate `assets/icons/app_source.png` → new `app.ico` /
-  `installer.ico`: same mark, recomposed on a `bg.app`-toned dark
-  tile with an `accent`-blue treatment of the glyph, so the taskbar
-  icon reads as "dark app" rather than the current light icon.
-- Regenerate `docs/logo.png` for the About panel on a dark card
-  background consistent with 10.7.
-- New reference assets under `docs/design/` (not shipped in the
-  installer, design-process artifacts only):
-  - `color-palette.svg` — every token in 10.1 as a labeled swatch.
-  - `ui-mockup-full.svg` — full-window mockup: title bar, menu bar,
-    Source/Golfed/Viewport three-panel layout, stats panel, in the
-    new palette, at the app's default window size.
-  - `icon-states.svg` — each reused icon glyph in idle/hover/active.
+- [x] Re-themed the existing Lucide icon glyphs: idle `text.secondary`,
+      hover `text.primary`, active `accent`, implemented as a color-
+      state change in the shared icon-button draw code.
+- [ ] Regenerate `assets/icons/app_source.png` → new `app.ico` /
+      `installer.ico`: not regenerated. The existing mark was already
+      composed on a dark navy tile with a cyan/blue glow — judged to
+      already satisfy "reads as a dark app" — so it was reused as-is
+      rather than risk a worse recolor.
+- [ ] Regenerate `docs/logo.png`: not regenerated for the same reason
+      — the existing logo is already a dark card with matching accent
+      colors.
+- [x] New reference assets under `docs/design/`: `color-palette.svg`,
+      `ui-mockup-full.svg`, `icon-states.svg` all created.
 
 #### 10.7 — About panel redesign
 
-- Rebuilt as a centered dark card (`bg.panel.raised` on `bg.app`),
-  logo top, app name + version, then copyright/email/website/
-  repository lines in `text.secondary` separated by `1px`
-  `border.subtle` hairlines — replacing the current plain list
-  layout with the same card treatment Premiere uses for its own
-  About dialog.
+- [x] Rebuilt as a centered dark card (`bg.panel.raised` on `bg.app`),
+      logo top, app name + version, then copyright/email/website/
+      repository lines in `text.secondary` separated by `border.subtle`
+      hairlines.
 
 #### 10.8 — Acceptance / verification
 
