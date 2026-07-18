@@ -10,12 +10,40 @@ viewport.
 
 ![uShader screenshot: Source, Golfed, and Viewport panels](docs/screenshot.png)
 
-**Status: early development (Phase 7 — branding & About). The app now
-has its own icon, taskbar identity, and an in-app About popup —
-packaging (the Windows installer) is the only phase left before 1.0.**
-See `ROADMAP.md` for the full phase-by-phase plan.
+## Features
 
-## Building
+- **Golfing engine**: identifier renaming, numeric literal shortening,
+  and whitespace stripping always run; an aggressive mode adds 14
+  further transformation passes (dead-code elimination, constant
+  folding, declaration merging, function inlining, and more), each
+  individually toggleable, plus a protected-names list for identifiers
+  that must never be renamed.
+- **Live viewport** with the standard Shadertoy uniform set (`iTime`,
+  `iResolution`, `iMouse`, `iDate`, `iFrame`, `iFrameRate`), and a
+  Compare mode that renders the source and golfed shaders side by
+  side to confirm golfing didn't change the output.
+- **GLSL-aware text editor** (syntax highlighting, error-line
+  highlighting on compile failure) for both the Source and Golfed
+  panels, with a "Formatted view" toggle for reading the golfed
+  one-liner across multiple lines.
+- **Reduction stats**: char/byte counts, reduction percentage,
+  per-pass counters, and size-budget badges (280/512/1024 bytes).
+- **Import/export**: open and save `.glsl` files, copy the golfed
+  output to the clipboard, export in Shadertoy format, and capture
+  the viewport to a PNG screenshot.
+
+## Installing
+
+Download the latest `uShader-Setup-*.exe` from the
+[Releases](https://github.com/Patrickjaillet/MicroShader/releases)
+page and run it. The installer is not code-signed, so Windows
+SmartScreen may show an "unknown publisher" warning on first run —
+click "More info" -> "Run anyway" to proceed.
+
+Requires Windows 10 or 11 (64-bit). Verified on Windows 10 (LTSC 2019,
+build 17763); not yet independently verified on Windows 11.
+
+## Building from source
 
 Requirements:
 
@@ -27,6 +55,13 @@ Requirements:
 ```bash
 cmake -S . -B build
 cmake --build build
+```
+
+To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+and run:
+
+```bash
+"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=1.0.0.0 installer\ushader.iss
 ```
 
 ## License

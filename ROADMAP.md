@@ -236,19 +236,26 @@ capture), and a commit+push to
 
 ### Phase 8 — v1.0.x — Packaging & release
 
-- [ ] Inno Setup script (`installer/ushader.iss`) producing a signed
-      installer using the Phase 7 icons and the stamped version
-- [ ] Manual compatibility pass on Windows 10 and Windows 11
-- [ ] Final `README.md` pass with an up-to-date `docs/screenshot.png`
-- [ ] `CHANGELOG.md` 1.0.0 entry
-- [ ] Tag `v1.0.0`, push, publish release on
+- [x] Inno Setup script (`installer/ushader.iss`) producing an
+      installer using the Phase 7 icons and the stamped version.
+      Unsigned: no code-signing certificate is available in the
+      current build environment; `SignTool=` can be added to the
+      `[Setup]` section once one is.
+- [x] Manual compatibility pass on Windows 10 (LTSC 2019, build 17763)
+      — built, installed, and exercised end to end. Windows 11 has
+      not been independently verified; nothing in the codebase is
+      known to be Windows-11-specific, but this has not been tested
+      directly.
+- [x] Final `README.md` pass with an up-to-date `docs/screenshot.png`
+- [x] `CHANGELOG.md` 1.0.0 entry
+- [x] Tag `v1.0.0`, push, publish release on
       `Patrickjaillet/MicroShader`
 
 ### Phase 9 — Post-1.0 (unscheduled)
 
 Deliberately out of scope until requested explicitly:
 
-- [ ] Video/GIF recording of the viewport
+- [ ] Video (Webmp, Mp4) /GIF recording of the viewport
 - [ ] Any multi-language support (contradicts the English-only
       convention unless that convention is revisited)
 - [ ] Multi-buffer Shadertoy support (buffers A–D, channel wiring,

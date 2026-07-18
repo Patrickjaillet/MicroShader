@@ -2,7 +2,22 @@
 
 All notable changes to µShader are documented in this file.
 
-## [0.8.0] - Unreleased
+## [1.0.0] - 2026-07-18
+
+First stable release.
+
+### Added
+
+- Inno Setup installer (`installer/ushader.iss`), producing
+  `uShader-Setup-<version>.exe` from the stamped `VERSION` file and
+  the Phase 7 icons. Unsigned — no code-signing certificate is
+  available in the build environment used for this release.
+- Verified end to end on Windows 10 (LTSC 2019, build 17763): built,
+  installed via the Inno Setup installer, launched from the installed
+  location, and exercised across every panel. Not independently
+  verified on Windows 11.
+
+## [0.8.0] - 2026-07-18
 
 ### Added
 
@@ -21,7 +36,7 @@ All notable changes to µShader are documented in this file.
   have affected PNG screenshot export depending on where a user saved
   it. Fixed by enabling `STBI_WINDOWS_UTF8`/`STBIW_WINDOWS_UTF8`.
 
-## [0.7.0] - Unreleased
+## [0.7.0] - 2026-07-18
 
 ### Added
 
@@ -37,7 +52,7 @@ All notable changes to µShader are documented in this file.
   shader's current frame via `glReadPixels` and writes it to a PNG
   file with `stb_image_write`.
 
-## [0.6.0] - Unreleased
+## [0.6.0] - 2026-07-18
 
 ### Added
 
@@ -55,7 +70,7 @@ All notable changes to µShader are documented in this file.
 - The Rust `capi` now returns full golf statistics (`UshaderGolfStats`)
   alongside the golfed code, not just the code string.
 
-## [0.5.0] - Unreleased
+## [0.5.0] - 2026-07-18
 
 ### Added
 
@@ -74,7 +89,7 @@ All notable changes to µShader are documented in this file.
   highlighted directly in the editor, correctly mapped back from the
   wrapped fragment shader's line numbering to the user's source lines.
 
-## [0.4.0] - Unreleased
+## [0.4.0] - 2026-07-18
 
 ### Added
 
@@ -92,7 +107,7 @@ All notable changes to µShader are documented in this file.
 - A small vector icon set (Lucide, `assets/fonts/lucide.ttf`) rendered
   through ImGui's font atlas.
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-07-18
 
 ### Added
 
@@ -108,7 +123,7 @@ All notable changes to µShader are documented in this file.
   resizing updates the GL viewport.
 - Shader compile/link errors are reported to stdout.
 
-## [0.2.0] - Unreleased
+## [0.2.0] - 2026-07-18
 
 ### Added
 
@@ -126,7 +141,7 @@ All notable changes to µShader are documented in this file.
 - CMake now builds `rust-core` via Cargo and links it into both the
   smoke test and the main application.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-07-18
 
 ### Added
 
