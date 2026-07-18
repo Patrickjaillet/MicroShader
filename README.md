@@ -10,11 +10,10 @@ viewport.
 
 ![uShader screenshot: Source, Golfed, and Viewport panels](docs/screenshot.png)
 
-**Status: early development (Phase 6 — import/export/capture). Open
-and save `.glsl` files, copy the golfed output, export it in
-Shadertoy format, and capture the viewport to PNG — branding and
-packaging are not implemented yet.** See `ROADMAP.md` for the full
-phase-by-phase plan.
+**Status: early development (Phase 7 — branding & About). The app now
+has its own icon, taskbar identity, and an in-app About popup —
+packaging (the Windows installer) is the only phase left before 1.0.**
+See `ROADMAP.md` for the full phase-by-phase plan.
 
 ## Building
 

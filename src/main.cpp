@@ -13,11 +13,14 @@
 #include <string>
 
 #include "platform/file_dialog.h"
+#include "platform/paths.h"
 #include "platform/screenshot.h"
 #include "render/default_shader.h"
 #include "render/framebuffer.h"
 #include "render/gl_functions.h"
 #include "render/shader_runner.h"
+#include "render/texture.h"
+#include "ui/about_panel.h"
 #include "ui/glsl_format.h"
 #include "ui/glsl_language.h"
 #include "ui/golf_controls.h"
@@ -142,6 +145,9 @@ int main(int argc, char* argv[])
 
     ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init("#version 330 core");
+
+    Texture logo_texture = load_texture_from_file(asset_path("branding/logo.png").c_str());
+    bool show_about = false;
 
     ShaderRunner source_runner;
     ShaderRunner golfed_runner;
@@ -274,10 +280,24 @@ int main(int argc, char* argv[])
 
         ImGuiWindowFlags host_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
                                        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                                       ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+                                       ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
+                                       ImGuiWindowFlags_MenuBar;
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         ImGui::Begin("##DockHost", nullptr, host_flags);
         ImGui::PopStyleVar();
+
+        if (ImGui::BeginMenuBar())
+        {
+            ImGui::PushFont(g_icon_font);
+            ImGui::Text(ICON_INFO);
+            ImGui::PopFont();
+            ImGui::SameLine(0.0f, 4.0f);
+            if (ImGui::MenuItem("About"))
+            {
+                show_about = true;
+            }
+            ImGui::EndMenuBar();
+        }
 
         ImGuiID dockspace_id = ImGui::GetID("MainDockSpace");
         bool narrow = main_viewport->WorkSize.x < 900.0f;
@@ -289,6 +309,8 @@ int main(int argc, char* argv[])
         }
         ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f));
         ImGui::End();
+
+        render_about_popup(show_about, logo_texture);
 
         ImGui::Begin(kSourceWindowTitle);
         if (icon_button(ICON_PLAY, "Run golf"))
@@ -442,6 +464,7 @@ int main(int argc, char* argv[])
         SDL_GL_SwapWindow(window);
     }
 
+    destroy_texture(logo_texture);
     source_viewport_fb.destroy();
     golfed_viewport_fb.destroy();
     source_runner.destroy();

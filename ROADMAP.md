@@ -229,10 +229,10 @@ capture), and a commit+push to
 
 ### Phase 7 — v0.8.x — Branding & About
 
-- [ ] `docs/logo.png` created
-- [ ] "About" tab: copyright, email, website, repository link, logo
-- [ ] Application icon (`assets/icons/app.ico`)
-- [ ] Installer icon (`assets/icons/installer.ico`)
+- [x] `docs/logo.png` created
+- [x] "About" tab: copyright, email, website, repository link, logo
+- [x] Application icon (`assets/icons/app.ico`)
+- [x] Installer icon (`assets/icons/installer.ico`)
 
 ### Phase 8 — v1.0.x — Packaging & release
 

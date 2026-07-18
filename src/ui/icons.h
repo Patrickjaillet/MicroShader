@@ -12,3 +12,4 @@
 #define ICON_COPY "\xee\x82\x9e"
 #define ICON_DOWNLOAD "\xee\x82\xb2"
 #define ICON_CAMERA "\xee\x81\xa4"
+#define ICON_INFO "\xee\x83\xb9"

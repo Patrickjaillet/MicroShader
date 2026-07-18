@@ -7,7 +7,7 @@ endif()
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" USHADER_VERSION_RAW LIMIT_COUNT 1)
 string(STRIP "${USHADER_VERSION_RAW}" USHADER_VERSION_RAW)
 
-project(ushader VERSION ${USHADER_VERSION_RAW} LANGUAGES CXX)
+project(ushader VERSION ${USHADER_VERSION_RAW} LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -131,6 +131,7 @@ add_executable(ushader
     src/render/gl_functions.cpp
     src/render/shader_runner.cpp
     src/render/framebuffer.cpp
+    src/render/texture.cpp
     src/platform/paths.cpp
     src/platform/file_dialog.cpp
     src/platform/screenshot.cpp
@@ -141,6 +142,8 @@ add_executable(ushader
     src/ui/glsl_format.cpp
     src/ui/golf_controls.cpp
     src/ui/stats_panel.cpp
+    src/ui/about_panel.cpp
+    assets/icons/app.rc
 )
 
 target_include_directories(ushader PRIVATE
@@ -162,6 +165,11 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${CMAKE_CURRENT_SOURCE_DIR}/assets
         $<TARGET_FILE_DIR:ushader>/assets
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:ushader>/assets/branding
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/logo.png
+        $<TARGET_FILE_DIR:ushader>/assets/branding/logo.png
 )
 
 add_executable(rust_core_smoke_test

@@ -2,6 +2,25 @@
 
 All notable changes to µShader are documented in this file.
 
+## [0.8.0] - Unreleased
+
+### Added
+
+- "About" popup (menu bar -> About): logo, version, copyright, and
+  clickable email/website/repository links.
+- Application and installer icons (`assets/icons/app.ico`,
+  `assets/icons/installer.ico`), embedded into the executable via a
+  Windows resource script.
+
+### Fixed
+
+- File paths containing non-ASCII characters (e.g. the project's own
+  `µShader` folder) were silently failing to load or save through
+  `stb_image`/`stb_image_write`, which default to the ANSI code page
+  on Windows instead of UTF-8. This affected the About logo and could
+  have affected PNG screenshot export depending on where a user saved
+  it. Fixed by enabling `STBI_WINDOWS_UTF8`/`STBIW_WINDOWS_UTF8`.
+
 ## [0.7.0] - Unreleased
 
 ### Added
