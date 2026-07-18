@@ -54,6 +54,20 @@ void OffscreenFramebuffer::unbind(int window_width, int window_height) const
     glViewport(0, 0, window_width, window_height);
 }
 
+bool OffscreenFramebuffer::read_pixels(std::vector<unsigned char>& out_rgba) const
+{
+    if (fbo == 0 || current_width <= 0 || current_height <= 0)
+    {
+        return false;
+    }
+
+    out_rgba.resize(static_cast<size_t>(current_width) * static_cast<size_t>(current_height) * 4);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glReadPixels(0, 0, current_width, current_height, GL_RGBA, GL_UNSIGNED_BYTE, out_rgba.data());
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return true;
+}
+
 void OffscreenFramebuffer::destroy()
 {
     if (fbo != 0)

@@ -90,10 +90,15 @@ void load_fonts(ImGuiIO& io, float base_size)
     icon_config.OversampleH = 2;
     icon_config.OversampleV = 2;
     static const ImWchar icon_ranges[] = {
+        0xe064, 0xe064,
         0xe077, 0xe077,
         0xe093, 0xe093,
+        0xe09e, 0xe09e,
+        0xe0b2, 0xe0b2,
         0xe0f6, 0xe0f6,
         0xe13c, 0xe13c,
+        0xe14d, 0xe14d,
+        0xe247, 0xe247,
         0};
     g_icon_font = io.Fonts->AddFontFromFileTTF(icon_path.c_str(), base_size, &icon_config, icon_ranges);
 }

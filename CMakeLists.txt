@@ -132,6 +132,9 @@ add_executable(ushader
     src/render/shader_runner.cpp
     src/render/framebuffer.cpp
     src/platform/paths.cpp
+    src/platform/file_dialog.cpp
+    src/platform/screenshot.cpp
+    src/platform/stb_impl.cpp
     src/ui/theme.cpp
     src/ui/layout.cpp
     src/ui/glsl_language.cpp
@@ -150,6 +153,7 @@ target_link_libraries(ushader PRIVATE
     imgui
     imguicolortextedit
     opengl32
+    comdlg32
     rust_core
 )
 

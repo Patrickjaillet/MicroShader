@@ -6,9 +6,14 @@
 
 #include <cstdio>
 #include <ctime>
+#include <fstream>
+#include <optional>
 #include <regex>
+#include <sstream>
 #include <string>
 
+#include "platform/file_dialog.h"
+#include "platform/screenshot.h"
 #include "render/default_shader.h"
 #include "render/framebuffer.h"
 #include "render/gl_functions.h"
@@ -25,6 +30,9 @@
 
 namespace
 {
+    const wchar_t kGlslFilter[] = L"GLSL shaders (*.glsl)\0*.glsl\0All files (*.*)\0*.*\0";
+    const wchar_t kPngFilter[] = L"PNG image (*.png)\0*.png\0";
+
     int parse_error_line_number(const std::string& log)
     {
         static const std::regex nvidia_pattern(R"(0\((\d+)\))");
@@ -48,6 +56,29 @@ namespace
             return "Line " + std::to_string(line) + ": ";
         }
         return std::string();
+    }
+
+    std::string read_text_file(const std::string& path)
+    {
+        std::ifstream file(path, std::ios::binary);
+        if (!file)
+        {
+            return std::string();
+        }
+        std::ostringstream buffer;
+        buffer << file.rdbuf();
+        return buffer.str();
+    }
+
+    bool write_text_file(const std::string& path, const std::string& content)
+    {
+        std::ofstream file(path, std::ios::binary);
+        if (!file)
+        {
+            return false;
+        }
+        file << content;
+        return static_cast<bool>(file);
     }
 }
 
@@ -134,6 +165,15 @@ int main(int argc, char* argv[])
     GolfPassToggles pass_toggles;
     std::string protected_names;
     UshaderGolfStats golf_stats{};
+
+    auto icon_button = [&](const char* icon, const char* label)
+    {
+        ImGui::PushFont(g_icon_font);
+        ImGui::Text("%s", icon);
+        ImGui::PopFont();
+        ImGui::SameLine(0.0f, 6.0f);
+        return ImGui::Button(label);
+    };
 
     auto run_golf_action = [&]()
     {
@@ -251,13 +291,28 @@ int main(int argc, char* argv[])
         ImGui::End();
 
         ImGui::Begin(kSourceWindowTitle);
-        ImGui::PushFont(g_icon_font);
-        ImGui::Text(ICON_PLAY);
-        ImGui::PopFont();
-        ImGui::SameLine(0.0f, 6.0f);
-        if (ImGui::Button("Run golf"))
+        if (icon_button(ICON_PLAY, "Run golf"))
         {
             run_golf_action();
+        }
+        ImGui::SameLine();
+        if (icon_button(ICON_FOLDER_OPEN, "Open"))
+        {
+            std::optional<std::string> path = show_open_file_dialog(window, kGlslFilter, L"glsl");
+            if (path.has_value())
+            {
+                source_editor.SetText(read_text_file(*path));
+                run_golf_action();
+            }
+        }
+        ImGui::SameLine();
+        if (icon_button(ICON_SAVE, "Save"))
+        {
+            std::optional<std::string> path = show_save_file_dialog(window, kGlslFilter, L"glsl", L"shader.glsl");
+            if (path.has_value())
+            {
+                write_text_file(*path, source_editor.GetText());
+            }
         }
         render_golf_controls(pass_toggles, protected_names);
         ImGui::Separator();
@@ -269,6 +324,20 @@ int main(int argc, char* argv[])
         {
             golfed_editor.SetText(formatted_view ? format_glsl(golfed_text) : golfed_text);
         }
+        ImGui::SameLine();
+        if (icon_button(ICON_COPY, "Copy"))
+        {
+            SDL_SetClipboardText(golfed_text.c_str());
+        }
+        ImGui::SameLine();
+        if (icon_button(ICON_DOWNLOAD, "Export (Shadertoy)"))
+        {
+            std::optional<std::string> path = show_save_file_dialog(window, kGlslFilter, L"glsl", L"shader.glsl");
+            if (path.has_value())
+            {
+                write_text_file(*path, golfed_text);
+            }
+        }
         render_stats_panel(golf_stats, golfed_text.size());
         ImGui::Separator();
         golfed_editor.Render("##golfed");
@@ -276,6 +345,15 @@ int main(int argc, char* argv[])
 
         ImGui::Begin(kViewportWindowTitle);
         ImGui::Checkbox("Compare", &compare_mode);
+        ImGui::SameLine();
+        if (icon_button(ICON_CAMERA, "Screenshot"))
+        {
+            std::optional<std::string> path = show_save_file_dialog(window, kPngFilter, L"png", L"screenshot.png");
+            if (path.has_value())
+            {
+                save_framebuffer_png(golfed_viewport_fb, *path);
+            }
+        }
 
         if (!compile_error.empty())
         {

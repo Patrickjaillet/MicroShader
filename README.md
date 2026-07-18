@@ -10,10 +10,11 @@ viewport.
 
 ![uShader screenshot: Source, Golfed, and Viewport panels](docs/screenshot.png)
 
-**Status: early development (Phase 5 — golfing controls & stats).
-Aggressive-pass toggles, protected names, reduction stats, and
-Compare mode are all in place; file import/export is not implemented
-yet.** See `ROADMAP.md` for the full phase-by-phase plan.
+**Status: early development (Phase 6 — import/export/capture). Open
+and save `.glsl` files, copy the golfed output, export it in
+Shadertoy format, and capture the viewport to PNG — branding and
+packaging are not implemented yet.** See `ROADMAP.md` for the full
+phase-by-phase plan.
 
 ## Building
 

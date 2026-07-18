@@ -2,6 +2,22 @@
 
 All notable changes to µShader are documented in this file.
 
+## [0.7.0] - Unreleased
+
+### Added
+
+- Open/Save buttons in the Source panel using native Windows file
+  dialogs, for loading and saving `.glsl` shader source.
+- Copy button in the Golfed panel: copies the golfed output (always
+  the raw minified text, regardless of "Formatted view") to the
+  clipboard.
+- Export (Shadertoy) button: saves the golfed output to a `.glsl`
+  file — Shadertoy's format is just the `mainImage` function body, so
+  no extra wrapping is needed.
+- Screenshot button in the Viewport panel: captures the golfed
+  shader's current frame via `glReadPixels` and writes it to a PNG
+  file with `stb_image_write`.
+
 ## [0.6.0] - Unreleased
 
 ### Added

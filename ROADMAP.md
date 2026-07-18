@@ -222,10 +222,10 @@ capture), and a commit+push to
 
 ### Phase 6 — v0.7.x — Import / export / capture
 
-- [ ] Open/save `.glsl` files (native Windows file dialogs)
-- [ ] Copy-to-clipboard for golfed output
-- [ ] Shadertoy-format export
-- [ ] PNG screenshot export (`glReadPixels` + `stb_image_write`)
+- [x] Open/save `.glsl` files (native Windows file dialogs)
+- [x] Copy-to-clipboard for golfed output
+- [x] Shadertoy-format export
+- [x] PNG screenshot export (`glReadPixels` + `stb_image_write`)
 
 ### Phase 7 — v0.8.x — Branding & About
 
