@@ -1,8 +1,8 @@
 #include <SDL3/SDL.h>
+#include <TextEditor.h>
 #include <imgui.h>
 #include <imgui_impl_opengl3.h>
 #include <imgui_impl_sdl3.h>
-#include <misc/cpp/imgui_stdlib.h>
 
 #include <cstdio>
 #include <ctime>
@@ -13,6 +13,8 @@
 #include "render/framebuffer.h"
 #include "render/gl_functions.h"
 #include "render/shader_runner.h"
+#include "ui/glsl_format.h"
+#include "ui/glsl_language.h"
 #include "ui/icons.h"
 #include "ui/layout.h"
 #include "ui/theme.h"
@@ -21,18 +23,27 @@
 
 namespace
 {
-    std::string parse_error_line(const std::string& log)
+    int parse_error_line_number(const std::string& log)
     {
         static const std::regex nvidia_pattern(R"(0\((\d+)\))");
         static const std::regex mesa_pattern(R"(0:(\d+))");
         std::smatch match;
         if (std::regex_search(log, match, nvidia_pattern) && match.size() > 1)
         {
-            return "Line " + match[1].str() + ": ";
+            return std::stoi(match[1].str());
         }
         if (std::regex_search(log, match, mesa_pattern) && match.size() > 1)
         {
-            return "Line " + match[1].str() + ": ";
+            return std::stoi(match[1].str());
+        }
+        return -1;
+    }
+
+    std::string error_line_prefix(int line)
+    {
+        if (line > 0)
+        {
+            return "Line " + std::to_string(line) + ": ";
         }
         return std::string();
     }
@@ -115,24 +126,56 @@ int main(int argc, char* argv[])
     ShaderRunner runner;
     OffscreenFramebuffer viewport_fb;
 
-    std::string source_text = kDefaultShaderSource;
+    TextEditor source_editor;
+    source_editor.SetLanguageDefinition(glsl_language_definition());
+    source_editor.SetPalette(TextEditor::GetLightPalette());
+    source_editor.SetText(kDefaultShaderSource);
+
+    TextEditor golfed_editor;
+    golfed_editor.SetLanguageDefinition(glsl_language_definition());
+    golfed_editor.SetPalette(TextEditor::GetLightPalette());
+    golfed_editor.SetReadOnly(true);
+
     std::string golfed_text;
     std::string compile_error;
+    bool formatted_view = false;
 
     auto run_golf_action = [&]()
     {
+        std::string source_text = source_editor.GetText();
+
+        std::string source_error;
+        if (!runner.compile(source_text, source_error))
+        {
+            compile_error = source_error;
+            int line = parse_error_line_number(source_error) - ShaderRunner::fragment_header_lines();
+            TextEditor::ErrorMarkers markers;
+            if (line > 0)
+            {
+                markers[line] = source_error;
+            }
+            source_editor.SetErrorMarkers(markers);
+            std::printf("shader compile/link failed:\n%s\n", source_error.c_str());
+            std::fflush(stdout);
+            return;
+        }
+        source_editor.SetErrorMarkers(TextEditor::ErrorMarkers());
+
         golfed_text = golf_source(source_text);
         const std::string& to_compile = golfed_text.empty() ? source_text : golfed_text;
-        std::string error_log;
-        if (!runner.compile(to_compile, error_log))
+        std::string golf_error;
+        if (!runner.compile(to_compile, golf_error))
         {
-            compile_error = error_log;
-            std::printf("shader compile/link failed:\n%s\n", error_log.c_str());
+            compile_error = golf_error;
+            std::printf("shader compile/link failed:\n%s\n", golf_error.c_str());
+            std::fflush(stdout);
         }
         else
         {
             compile_error.clear();
         }
+
+        golfed_editor.SetText(formatted_view ? format_glsl(golfed_text) : golfed_text);
     };
 
     run_golf_action();
@@ -209,14 +252,31 @@ int main(int argc, char* argv[])
         {
             run_golf_action();
         }
-        ImGui::InputTextMultiline("##source", &source_text, ImGui::GetContentRegionAvail(), ImGuiInputTextFlags_AllowTabInput);
+        source_editor.Render("##source");
         ImGui::End();
 
         ImGui::Begin(kGolfedWindowTitle);
-        ImGui::InputTextMultiline("##golfed", &golfed_text, ImGui::GetContentRegionAvail(), ImGuiInputTextFlags_ReadOnly);
+        if (ImGui::Checkbox("Formatted view", &formatted_view))
+        {
+            golfed_editor.SetText(formatted_view ? format_glsl(golfed_text) : golfed_text);
+        }
+        golfed_editor.Render("##golfed");
         ImGui::End();
 
         ImGui::Begin(kViewportWindowTitle);
+
+        if (!compile_error.empty())
+        {
+            ImGui::PushFont(g_icon_font);
+            ImGui::TextColored(ImVec4(0.80f, 0.20f, 0.20f, 1.0f), ICON_CIRCLE_ALERT);
+            ImGui::PopFont();
+            ImGui::SameLine(0.0f, 6.0f);
+            ImGui::TextColored(ImVec4(0.80f, 0.20f, 0.20f, 1.0f), "Shader error");
+            int display_line = parse_error_line_number(compile_error) - ShaderRunner::fragment_header_lines();
+            ImGui::TextWrapped("%s%s", error_line_prefix(display_line).c_str(), compile_error.c_str());
+            ImGui::Separator();
+        }
+
         ImVec2 avail = ImGui::GetContentRegionAvail();
 
         int window_pixel_w = 0;
@@ -258,15 +318,6 @@ int main(int argc, char* argv[])
             ImGui::Image(static_cast<ImTextureID>(viewport_fb.texture_id()), avail, ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
         }
 
-        if (!compile_error.empty())
-        {
-            ImGui::PushFont(g_icon_font);
-            ImGui::TextColored(ImVec4(0.80f, 0.20f, 0.20f, 1.0f), ICON_CIRCLE_ALERT);
-            ImGui::PopFont();
-            ImGui::SameLine(0.0f, 6.0f);
-            ImGui::TextColored(ImVec4(0.80f, 0.20f, 0.20f, 1.0f), "Shader error");
-            ImGui::TextWrapped("%s%s", parse_error_line(compile_error).c_str(), compile_error.c_str());
-        }
         ImGui::End();
 
         ImGui::Render();

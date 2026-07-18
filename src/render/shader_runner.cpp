@@ -1,5 +1,6 @@
 #include "shader_runner.h"
 
+#include <algorithm>
 #include <vector>
 
 #include "gl_functions.h"
@@ -52,6 +53,12 @@ namespace
         out_shader = shader;
         return true;
     }
+}
+
+int ShaderRunner::fragment_header_lines()
+{
+    static const int count = static_cast<int>(std::count(kFragmentPrefix, kFragmentPrefix + std::char_traits<char>::length(kFragmentPrefix), '\n'));
+    return count;
 }
 
 bool ShaderRunner::compile(const std::string& fragment_source, std::string& error_log)

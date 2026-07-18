@@ -10,8 +10,9 @@ viewport.
 
 ![uShader screenshot: Source, Golfed, and Viewport panels](docs/screenshot.png)
 
-**Status: early development (Phase 3 — core UI shell). The Source /
-Golfed / Viewport shell is usable; text editing, golfing controls,
+**Status: early development (Phase 4 — text editor). Source and
+Golfed panels are real GLSL-highlighted editors with error-line
+highlighting; golfing controls (aggressive passes, protected names)
 and file import/export are not implemented yet.** See `ROADMAP.md`
 for the full phase-by-phase plan.
 

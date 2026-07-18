@@ -204,11 +204,11 @@ capture), and a commit+push to
 
 ### Phase 4 — v0.5.x — Text editor
 
-- [ ] Integrate the chosen ImGui text-editor widget
-- [ ] GLSL syntax highlighting rules (keywords, types, builtins,
+- [x] Integrate the chosen ImGui text-editor widget
+- [x] GLSL syntax highlighting rules (keywords, types, builtins,
       qualifiers, preprocessor directives)
-- [ ] Read-only "Golfed" view + "Formatted view" toggle
-- [ ] Error-line highlighting in the source editor
+- [x] Read-only "Golfed" view + "Formatted view" toggle
+- [x] Error-line highlighting in the source editor
 
 ### Phase 5 — v0.6.x — Golfing controls & stats
 

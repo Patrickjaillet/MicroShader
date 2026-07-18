@@ -22,6 +22,8 @@ struct ShaderUniforms
 class ShaderRunner
 {
 public:
+    static int fragment_header_lines();
+
     bool compile(const std::string& fragment_source, std::string& error_log);
     void draw(const ShaderUniforms& uniforms) const;
     void destroy();

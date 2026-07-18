@@ -2,6 +2,25 @@
 
 All notable changes to µShader are documented in this file.
 
+## [0.5.0] - Unreleased
+
+### Added
+
+- A real text-editor widget (ImGuiColorTextEdit) replaces the plain
+  text boxes in the Source and Golfed panels, with a custom GLSL
+  language definition covering real keywords, types, qualifiers,
+  built-in functions/variables, and preprocessor directives (the
+  library's own bundled "GLSL" definition was actually generic C
+  vocabulary, so it was not used).
+- "Formatted view" toggle on the Golfed panel: re-indents the golfed
+  one-liner across multiple lines for readability. Display only — the
+  code that gets golfed, compiled, and (later) copied stays the
+  minified version.
+- Error-line highlighting in the Source editor: on a compile failure,
+  the offending line is parsed out of the driver's error log and
+  highlighted directly in the editor, correctly mapped back from the
+  wrapped fragment shader's line numbering to the user's source lines.
+
 ## [0.4.0] - Unreleased
 
 ### Added

@@ -96,6 +96,14 @@ target_include_directories(imgui PUBLIC
 )
 target_link_libraries(imgui PUBLIC SDL3::SDL3)
 
+add_library(imguicolortextedit STATIC
+    ${imguicolortextedit_SOURCE_DIR}/TextEditor.cpp
+)
+target_include_directories(imguicolortextedit PUBLIC
+    ${imguicolortextedit_SOURCE_DIR}
+)
+target_link_libraries(imguicolortextedit PUBLIC imgui)
+
 set(RUST_CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/rust-core)
 set(RUST_CORE_LIB ${RUST_CORE_DIR}/target/release/ushader_core.lib)
 file(GLOB_RECURSE RUST_CORE_SOURCES ${RUST_CORE_DIR}/src/*.rs)
@@ -126,6 +134,8 @@ add_executable(ushader
     src/platform/paths.cpp
     src/ui/theme.cpp
     src/ui/layout.cpp
+    src/ui/glsl_language.cpp
+    src/ui/glsl_format.cpp
 )
 
 target_include_directories(ushader PRIVATE
@@ -136,6 +146,7 @@ target_include_directories(ushader PRIVATE
 target_link_libraries(ushader PRIVATE
     SDL3::SDL3
     imgui
+    imguicolortextedit
     opengl32
     rust_core
 )
