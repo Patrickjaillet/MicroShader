@@ -8,9 +8,12 @@ native SDL3 + OpenGL + Dear ImGui application shell: paste a shader,
 golf it, and immediately verify it renders identically in the live
 viewport.
 
-**Status: early development (Phase 0 — repository & toolchain
-bootstrap). No usable build yet.** See `ROADMAP.md` for the full
-phase-by-phase plan.
+![uShader screenshot: Source, Golfed, and Viewport panels](docs/screenshot.png)
+
+**Status: early development (Phase 3 — core UI shell). The Source /
+Golfed / Viewport shell is usable; text editing, golfing controls,
+and file import/export are not implemented yet.** See `ROADMAP.md`
+for the full phase-by-phase plan.
 
 ## Building
 

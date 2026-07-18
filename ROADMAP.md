@@ -178,8 +178,8 @@ capture), and a commit+push to
 
 ### Phase 3 — v0.4.x — Core UI shell
 
-- [ ] Dear ImGui integration (docking), **white theme only**
-- [ ] Custom visual theme — this is a first-class deliverable, not a
+- [x] Dear ImGui integration (docking), **white theme only**
+- [x] Custom visual theme — this is a first-class deliverable, not a
       cosmetic afterthought: custom sans-serif font (e.g. Inter or
       Segoe UI Variable) at a readable base size, rounded corners on
       windows/buttons/inputs, generous padding/spacing, a restrained
@@ -188,10 +188,19 @@ capture), and a commit+push to
       Reference target for "does this look dated" checks: ImHex
       (github.com/WerWolv/ImHex), a restyled-ImGui tool app with the
       same panel/tab/editor shape as µShader.
-- [ ] Three-panel layout: Source / Golfed / Viewport, resizable
+      Note: the icon font (Lucide, `assets/fonts/lucide.ttf`) is
+      rendered as a real vector-glyph texture atlas via a dedicated
+      `ImFont*`, pushed with `PushFont()`/`PopFont()` around each icon
+      glyph — a font-atlas `MergeMode` bug in the current ImGui build
+      returns the wrong glyph when the icon font is merged into the
+      text font, so icons cannot yet sit inline inside a single label
+      (e.g. window/tab titles stay plain text). Icons are currently
+      used where a standalone glyph call is possible (the "Run golf"
+      button, the shader-error indicator).
+- [x] Three-panel layout: Source / Golfed / Viewport, resizable
       dividers, collapsing to tabs under a narrow window
-- [ ] Wire the "run golf" action to the Phase 1 C ABI bridge
-- [ ] Render errors surfaced in the UI (stage, log, source line)
+- [x] Wire the "run golf" action to the Phase 1 C ABI bridge
+- [x] Render errors surfaced in the UI (stage, log, source line)
 
 ### Phase 4 — v0.5.x — Text editor
 

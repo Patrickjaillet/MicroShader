@@ -59,7 +59,7 @@ FetchContent_MakeAvailable(SDL3)
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG docking
+    GIT_TAG v1.92.8-docking
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(imgui)
@@ -88,6 +88,7 @@ add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
 )
 target_include_directories(imgui PUBLIC
     ${imgui_SOURCE_DIR}
@@ -121,6 +122,10 @@ add_executable(ushader
     src/main.cpp
     src/render/gl_functions.cpp
     src/render/shader_runner.cpp
+    src/render/framebuffer.cpp
+    src/platform/paths.cpp
+    src/ui/theme.cpp
+    src/ui/layout.cpp
 )
 
 target_include_directories(ushader PRIVATE
@@ -133,6 +138,13 @@ target_link_libraries(ushader PRIVATE
     imgui
     opengl32
     rust_core
+)
+
+add_custom_command(
+    TARGET ushader POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/assets
+        $<TARGET_FILE_DIR:ushader>/assets
 )
 
 add_executable(rust_core_smoke_test

@@ -1,12 +1,55 @@
 #include <SDL3/SDL.h>
+#include <imgui.h>
+#include <imgui_impl_opengl3.h>
+#include <imgui_impl_sdl3.h>
+#include <misc/cpp/imgui_stdlib.h>
 
 #include <cstdio>
 #include <ctime>
+#include <regex>
+#include <string>
 
 #include "render/default_shader.h"
+#include "render/framebuffer.h"
 #include "render/gl_functions.h"
 #include "render/shader_runner.h"
+#include "ui/icons.h"
+#include "ui/layout.h"
+#include "ui/theme.h"
+#include "ushader/golf_core.h"
 #include "ushader/version.h"
+
+namespace
+{
+    std::string parse_error_line(const std::string& log)
+    {
+        static const std::regex nvidia_pattern(R"(0\((\d+)\))");
+        static const std::regex mesa_pattern(R"(0:(\d+))");
+        std::smatch match;
+        if (std::regex_search(log, match, nvidia_pattern) && match.size() > 1)
+        {
+            return "Line " + match[1].str() + ": ";
+        }
+        if (std::regex_search(log, match, mesa_pattern) && match.size() > 1)
+        {
+            return "Line " + match[1].str() + ": ";
+        }
+        return std::string();
+    }
+
+    std::string golf_source(const std::string& source)
+    {
+        UshaderGolfOptions options{true, true, true, true, true, true, true, true, true, true, true, true, true, true};
+        char* result = ushader_golf(source.c_str(), options, nullptr);
+        if (result == nullptr)
+        {
+            return std::string();
+        }
+        std::string golfed(result);
+        ushader_free_string(result);
+        return golfed;
+    }
+}
 
 int main(int argc, char* argv[])
 {
@@ -57,12 +100,42 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.IniFilename = nullptr;
+
+    load_fonts(io, 18.0f);
+    apply_theme();
+
+    ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
+    ImGui_ImplOpenGL3_Init("#version 330 core");
+
     ShaderRunner runner;
-    std::string error_log;
-    if (!runner.compile(kDefaultShaderSource, error_log))
+    OffscreenFramebuffer viewport_fb;
+
+    std::string source_text = kDefaultShaderSource;
+    std::string golfed_text;
+    std::string compile_error;
+
+    auto run_golf_action = [&]()
     {
-        std::printf("shader compile/link failed:\n%s\n", error_log.c_str());
-    }
+        golfed_text = golf_source(source_text);
+        const std::string& to_compile = golfed_text.empty() ? source_text : golfed_text;
+        std::string error_log;
+        if (!runner.compile(to_compile, error_log))
+        {
+            compile_error = error_log;
+            std::printf("shader compile/link failed:\n%s\n", error_log.c_str());
+        }
+        else
+        {
+            compile_error.clear();
+        }
+    };
+
+    run_golf_action();
 
     Uint64 start_ticks = SDL_GetTicks();
     Uint64 last_ticks = start_ticks;
@@ -73,22 +146,20 @@ int main(int argc, char* argv[])
     float mouse_click_x = 0.0f;
     float mouse_click_y = 0.0f;
 
+    bool layout_built = false;
+    bool last_narrow = false;
+
     bool running = true;
     while (running)
     {
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
+            ImGui_ImplSDL3_ProcessEvent(&event);
+
             if (event.type == SDL_EVENT_QUIT)
             {
                 running = false;
-            }
-            else if (event.type == SDL_EVENT_WINDOW_RESIZED)
-            {
-                int pixel_w = 0;
-                int pixel_h = 0;
-                SDL_GetWindowSizeInPixels(window, &pixel_w, &pixel_h);
-                glViewport(0, 0, pixel_w, pixel_h);
             }
             else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT)
             {
@@ -102,42 +173,117 @@ int main(int argc, char* argv[])
             }
         }
 
-        int pixel_w = 0;
-        int pixel_h = 0;
-        SDL_GetWindowSizeInPixels(window, &pixel_w, &pixel_h);
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplSDL3_NewFrame();
+        ImGui::NewFrame();
 
-        Uint64 now_ticks = SDL_GetTicks();
-        Uint64 delta_ms = now_ticks - last_ticks;
-        last_ticks = now_ticks;
+        const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+        ImGui::SetNextWindowPos(main_viewport->WorkPos);
+        ImGui::SetNextWindowSize(main_viewport->WorkSize);
+        ImGui::SetNextWindowViewport(main_viewport->ID);
 
-        std::time_t raw_time = std::time(nullptr);
-        std::tm local_time{};
-        localtime_s(&local_time, &raw_time);
+        ImGuiWindowFlags host_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+                                       ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                                       ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::Begin("##DockHost", nullptr, host_flags);
+        ImGui::PopStyleVar();
 
-        ShaderUniforms uniforms{};
-        uniforms.time = static_cast<float>(now_ticks - start_ticks) / 1000.0f;
-        uniforms.resolution_x = static_cast<float>(pixel_w);
-        uniforms.resolution_y = static_cast<float>(pixel_h);
-        uniforms.mouse_x = mouse_x;
-        uniforms.mouse_y = static_cast<float>(pixel_h) - mouse_y;
-        uniforms.mouse_click_x = mouse_click_x;
-        uniforms.mouse_click_y = static_cast<float>(pixel_h) - mouse_click_y;
-        uniforms.date_year = static_cast<float>(local_time.tm_year + 1900);
-        uniforms.date_month = static_cast<float>(local_time.tm_mon + 1);
-        uniforms.date_day = static_cast<float>(local_time.tm_mday);
-        uniforms.date_seconds = static_cast<float>(local_time.tm_hour * 3600 + local_time.tm_min * 60 + local_time.tm_sec);
-        uniforms.frame = frame;
-        uniforms.frame_rate = delta_ms > 0 ? (1000.0f / static_cast<float>(delta_ms)) : 0.0f;
+        ImGuiID dockspace_id = ImGui::GetID("MainDockSpace");
+        bool narrow = main_viewport->WorkSize.x < 900.0f;
+        if (!layout_built || narrow != last_narrow)
+        {
+            build_dock_layout(dockspace_id, narrow);
+            layout_built = true;
+            last_narrow = narrow;
+        }
+        ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f));
+        ImGui::End();
 
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        ImGui::Begin(kSourceWindowTitle);
+        ImGui::PushFont(g_icon_font);
+        ImGui::Text(ICON_PLAY);
+        ImGui::PopFont();
+        ImGui::SameLine(0.0f, 6.0f);
+        if (ImGui::Button("Run golf"))
+        {
+            run_golf_action();
+        }
+        ImGui::InputTextMultiline("##source", &source_text, ImGui::GetContentRegionAvail(), ImGuiInputTextFlags_AllowTabInput);
+        ImGui::End();
+
+        ImGui::Begin(kGolfedWindowTitle);
+        ImGui::InputTextMultiline("##golfed", &golfed_text, ImGui::GetContentRegionAvail(), ImGuiInputTextFlags_ReadOnly);
+        ImGui::End();
+
+        ImGui::Begin(kViewportWindowTitle);
+        ImVec2 avail = ImGui::GetContentRegionAvail();
+
+        int window_pixel_w = 0;
+        int window_pixel_h = 0;
+        SDL_GetWindowSizeInPixels(window, &window_pixel_w, &window_pixel_h);
+
+        if (avail.x >= 1.0f && avail.y >= 1.0f && viewport_fb.resize(static_cast<int>(avail.x), static_cast<int>(avail.y)))
+        {
+            Uint64 now_ticks = SDL_GetTicks();
+            Uint64 delta_ms = now_ticks - last_ticks;
+            last_ticks = now_ticks;
+
+            std::time_t raw_time = std::time(nullptr);
+            std::tm local_time{};
+            localtime_s(&local_time, &raw_time);
+
+            ShaderUniforms uniforms{};
+            uniforms.time = static_cast<float>(now_ticks - start_ticks) / 1000.0f;
+            uniforms.resolution_x = avail.x;
+            uniforms.resolution_y = avail.y;
+            uniforms.mouse_x = mouse_x;
+            uniforms.mouse_y = avail.y - mouse_y;
+            uniforms.mouse_click_x = mouse_click_x;
+            uniforms.mouse_click_y = avail.y - mouse_click_y;
+            uniforms.date_year = static_cast<float>(local_time.tm_year + 1900);
+            uniforms.date_month = static_cast<float>(local_time.tm_mon + 1);
+            uniforms.date_day = static_cast<float>(local_time.tm_mday);
+            uniforms.date_seconds = static_cast<float>(local_time.tm_hour * 3600 + local_time.tm_min * 60 + local_time.tm_sec);
+            uniforms.frame = frame;
+            uniforms.frame_rate = delta_ms > 0 ? (1000.0f / static_cast<float>(delta_ms)) : 0.0f;
+            frame += 1;
+
+            viewport_fb.bind();
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            runner.draw(uniforms);
+            viewport_fb.unbind(window_pixel_w, window_pixel_h);
+
+            ImGui::Image(static_cast<ImTextureID>(viewport_fb.texture_id()), avail, ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+        }
+
+        if (!compile_error.empty())
+        {
+            ImGui::PushFont(g_icon_font);
+            ImGui::TextColored(ImVec4(0.80f, 0.20f, 0.20f, 1.0f), ICON_CIRCLE_ALERT);
+            ImGui::PopFont();
+            ImGui::SameLine(0.0f, 6.0f);
+            ImGui::TextColored(ImVec4(0.80f, 0.20f, 0.20f, 1.0f), "Shader error");
+            ImGui::TextWrapped("%s%s", parse_error_line(compile_error).c_str(), compile_error.c_str());
+        }
+        ImGui::End();
+
+        ImGui::Render();
+
+        glViewport(0, 0, window_pixel_w, window_pixel_h);
+        glClearColor(0.90f, 0.91f, 0.94f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
-        runner.draw(uniforms);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         SDL_GL_SwapWindow(window);
-        frame += 1;
     }
 
+    viewport_fb.destroy();
     runner.destroy();
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
+    ImGui::DestroyContext();
     SDL_GL_DestroyContext(gl_context);
     SDL_DestroyWindow(window);
     SDL_Quit();

@@ -2,6 +2,24 @@
 
 All notable changes to µShader are documented in this file.
 
+## [0.4.0] - Unreleased
+
+### Added
+
+- Dear ImGui docking UI shell integrated into the SDL3/OpenGL window,
+  with a custom white theme: an embedded Inter font, rounded corners,
+  generous padding, and a restrained accent color palette.
+- A three-panel Source / Golfed / Viewport dockable layout that
+  automatically collapses into tabs under a narrow window.
+- The "Run golf" action calls into the Phase 1 Rust engine through
+  the C ABI bridge and displays the golfed output.
+- The viewport renders the golfed shader into an offscreen framebuffer
+  and displays it live via `ImGui::Image`; shader compile/link errors
+  are surfaced in the UI with the offending source line parsed out of
+  the driver's error log where possible.
+- A small vector icon set (Lucide, `assets/fonts/lucide.ttf`) rendered
+  through ImGui's font atlas.
+
 ## [0.3.0] - Unreleased
 
 ### Added

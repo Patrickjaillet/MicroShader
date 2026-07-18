@@ -24,6 +24,11 @@ PFNGLUNIFORM2FPROC glUniform2f = nullptr;
 PFNGLUNIFORM3FPROC glUniform3f = nullptr;
 PFNGLUNIFORM4FPROC glUniform4f = nullptr;
 PFNGLUNIFORM1IPROC glUniform1i = nullptr;
+PFNGLGENFRAMEBUFFERSPROC glGenFramebuffers = nullptr;
+PFNGLBINDFRAMEBUFFERPROC glBindFramebuffer = nullptr;
+PFNGLFRAMEBUFFERTEXTURE2DPROC glFramebufferTexture2D = nullptr;
+PFNGLCHECKFRAMEBUFFERSTATUSPROC glCheckFramebufferStatus = nullptr;
+PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers = nullptr;
 
 namespace
 {
@@ -60,5 +65,10 @@ bool gl_load_functions()
     ok = load(glUniform3f, "glUniform3f") && ok;
     ok = load(glUniform4f, "glUniform4f") && ok;
     ok = load(glUniform1i, "glUniform1i") && ok;
+    ok = load(glGenFramebuffers, "glGenFramebuffers") && ok;
+    ok = load(glBindFramebuffer, "glBindFramebuffer") && ok;
+    ok = load(glFramebufferTexture2D, "glFramebufferTexture2D") && ok;
+    ok = load(glCheckFramebufferStatus, "glCheckFramebufferStatus") && ok;
+    ok = load(glDeleteFramebuffers, "glDeleteFramebuffers") && ok;
     return ok;
 }
