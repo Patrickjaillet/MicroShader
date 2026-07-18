@@ -2,6 +2,22 @@
 
 All notable changes to µShader are documented in this file.
 
+## [0.3.0] - Unreleased
+
+### Added
+
+- OpenGL 3.3 core context on the SDL3 window, with a minimal hand-rolled
+  function loader for the core-profile entry points not statically
+  exported on Windows.
+- `ShaderRunner`: a fullscreen-triangle Shadertoy-style single-pass
+  renderer (`src/render/`) — compiles a user `mainImage` fragment body
+  wrapped with the standard uniform set (`iTime`, `iResolution`,
+  `iMouse`, `iDate`, `iFrame`, `iFrameRate`) and draws it with no
+  vertex buffers (`gl_VertexID`-driven fullscreen triangle).
+- A hardcoded default shader renders and animates on startup; window
+  resizing updates the GL viewport.
+- Shader compile/link errors are reported to stdout.
+
 ## [0.2.0] - Unreleased
 
 ### Added

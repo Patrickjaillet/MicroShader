@@ -165,15 +165,15 @@ capture), and a commit+push to
 
 ### Phase 2 — v0.3.x — Window & rendering
 
-- [ ] SDL3 window + OpenGL 3.3 core context
-- [ ] Fullscreen-triangle Shadertoy-style fragment shader runner,
+- [x] SDL3 window + OpenGL 3.3 core context
+- [x] Fullscreen-triangle Shadertoy-style fragment shader runner,
       single pass only — no buffers, no channel wiring, no "Common"
       code block (see section 7 for the multi-buffer rejection)
-- [ ] Standard uniform set: `iTime`, `iResolution`, `iMouse`, `iDate`,
+- [x] Standard uniform set: `iTime`, `iResolution`, `iMouse`, `iDate`,
       `iFrame`, `iFrameRate`
-- [ ] Compile/link error reporting surfaced to stdout (UI surfacing
+- [x] Compile/link error reporting surfaced to stdout (UI surfacing
       comes in Phase 3)
-- [ ] Hardcoded default shader (the single `mainImage` fragment body)
+- [x] Hardcoded default shader (the single `mainImage` fragment body)
       renders and animates correctly
 
 ### Phase 3 — v0.4.x — Core UI shell

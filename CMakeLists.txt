@@ -119,6 +119,8 @@ target_link_libraries(rust_core INTERFACE ws2_32 userenv advapi32 bcrypt ntdll)
 
 add_executable(ushader
     src/main.cpp
+    src/render/gl_functions.cpp
+    src/render/shader_runner.cpp
 )
 
 target_include_directories(ushader PRIVATE
