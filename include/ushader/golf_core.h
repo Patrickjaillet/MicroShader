@@ -24,6 +24,7 @@ typedef struct {
     bool eliminate_dead_functions;
     bool inline_single_call_functions;
     bool simplify_algebraic_identities;
+    bool eliminate_common_subexpressions;
 } UshaderGolfOptions;
 
 typedef struct {
@@ -47,6 +48,7 @@ typedef struct {
     uintptr_t dead_functions_removed;
     uintptr_t functions_inlined;
     uintptr_t algebraic_identities_simplified;
+    uintptr_t common_subexpressions_eliminated;
 } UshaderGolfStats;
 
 #ifdef __cplusplus

@@ -19,6 +19,7 @@ pub struct UshaderGolfOptions {
     pub eliminate_dead_functions: bool,
     pub inline_single_call_functions: bool,
     pub simplify_algebraic_identities: bool,
+    pub eliminate_common_subexpressions: bool,
 }
 
 impl From<UshaderGolfOptions> for AggressiveOptions {
@@ -39,6 +40,7 @@ impl From<UshaderGolfOptions> for AggressiveOptions {
             eliminate_dead_functions: o.eliminate_dead_functions,
             inline_single_call_functions: o.inline_single_call_functions,
             simplify_algebraic_identities: o.simplify_algebraic_identities,
+            eliminate_common_subexpressions: o.eliminate_common_subexpressions,
         }
     }
 }
@@ -65,6 +67,7 @@ pub struct UshaderGolfStats {
     pub dead_functions_removed: usize,
     pub functions_inlined: usize,
     pub algebraic_identities_simplified: usize,
+    pub common_subexpressions_eliminated: usize,
 }
 
 impl From<GolfStats> for UshaderGolfStats {
@@ -90,6 +93,7 @@ impl From<GolfStats> for UshaderGolfStats {
             dead_functions_removed: s.aggressive.dead_functions_removed,
             functions_inlined: s.aggressive.functions_inlined,
             algebraic_identities_simplified: s.aggressive.algebraic_identities_simplified,
+            common_subexpressions_eliminated: s.aggressive.common_subexpressions_eliminated,
         }
     }
 }

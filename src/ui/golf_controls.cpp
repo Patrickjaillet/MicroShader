@@ -28,6 +28,7 @@ UshaderGolfOptions to_golf_options(const GolfPassToggles& toggles)
         toggles.eliminate_dead_functions,
         toggles.inline_single_call_functions,
         toggles.simplify_algebraic_identities,
+        toggles.eliminate_common_subexpressions,
     };
 }
 
@@ -55,6 +56,7 @@ void render_golf_controls(GolfPassToggles& toggles, std::string& protected_names
         themed_checkbox("Duplicate precision", &toggles.strip_duplicate_precision);
         themed_checkbox("Dead functions", &toggles.eliminate_dead_functions);
         themed_checkbox("Inline single-call", &toggles.inline_single_call_functions);
+        themed_checkbox("Common subexpressions", &toggles.eliminate_common_subexpressions);
         ImGui::Columns(1);
     }
     ImGui::EndDisabled();

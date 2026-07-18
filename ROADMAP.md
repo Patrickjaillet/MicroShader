@@ -481,6 +481,44 @@ passes are added.
       existing folding passes were already careful to avoid. Covered by
       `fixtures/algebraic_identities.glsl` and four Rust unit tests in
       `golfer.rs`.
+- [x] **Common subexpression elimination** (`eliminate_common_subexpressions`
+      in `rust-core/src/aggressive.rs`): when two declarations initialize
+      with a token-identical pure expression, rewrites the later ones to
+      reference the first variable instead of recomputing, e.g.
+      `float a=dot(p,p),b=dot(p,p);` -> `float a=dot(p,p),b=a;`. Scoped
+      deliberately narrowly for safety rather than as a general compiler
+      optimization:
+      - Only matches whole declaration-statement initializers (`TYPE
+        NAME=EXPR`), never a sub-expression buried inside a larger one,
+        and only when both declarations use the exact same `TYPE`.
+      - The candidate expression must be built purely from identifiers,
+        numbers, operators, member/swizzle access, and calls to a fixed
+        whitelist of pure GLSL builtins/constructors — never a
+        user-defined function, since this pass has no way to prove one
+        is free of side effects.
+      - The cache of candidate expressions is cleared unconditionally on
+        every `{`/`}` and on every statement that is not itself one of
+        these clean declarations (including any plain assignment,
+        increment/decrement, or unrecognized call), so a match can only
+        ever span an uninterrupted straight-line run of declarations —
+        this is what makes shadowed variables in a nested block safe
+        without needing real scope/dominance analysis.
+      - Found and fixed two real bugs during development, both caught by
+        Rust unit tests before shipping: (1) the first implementation
+        read a variable's name from `Item::tok`, which the renaming pass
+        deliberately leaves holding the *pre-rename* identifier for other
+        passes' benefit, instead of `Item::text` (the actual rendered,
+        post-rename name) — this produced a reference to a name that was
+        never declared (once, coincidentally, the enclosing function's
+        own new name) rather than the variable that actually held the
+        cached value; (2) the cache-clearing check for `{`/`}` was
+        originally gated behind "does this token immediately follow a
+        `;`/`{`/`}`", which misses the extremely common case of a brace
+        following `)` (every `if`/`for`/`while`/function body) or
+        `else` — fixed by making the brace check unconditional.
+      Covered by `fixtures/common_subexpressions.glsl` and four Rust
+      unit tests in `golfer.rs`, including regression tests for both
+      bugs above.
 
 ---
 

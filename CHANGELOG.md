@@ -2,6 +2,28 @@
 
 All notable changes to µShader are documented in this file.
 
+## [1.2.5] - 2026-07-19
+
+### Added
+
+- New golf pass: common subexpression elimination. When two
+  declarations in a straight-line run initialize with a
+  token-identical pure expression, the later ones are rewritten to
+  reference the first variable instead of recomputing, e.g.
+  `float a=dot(p,p),b=dot(p,p);` becomes `float a=dot(p,p),b=a;`.
+  New "Common subexpressions" toggle in the Passes panel and matching
+  per-pass counter. Deliberately narrow in scope for safety: only
+  whole declaration initializers (never a sub-expression), only
+  built from a fixed whitelist of pure builtins (never a user
+  function), and the candidate cache is cleared on every block
+  boundary and on any statement that isn't itself a clean matching
+  declaration.
+- Found and fixed two real correctness bugs in this new pass during
+  development (both now covered by regression tests): a variable-name
+  lookup that read the pre-rename identifier instead of the actual
+  rendered name, and a cache-invalidation check that missed the
+  common case of a brace following `)` or `else` rather than `;`.
+
 ## [1.2.4] - 2026-07-18
 
 ### Added

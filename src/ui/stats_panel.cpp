@@ -43,6 +43,7 @@ void render_stats_panel(const UshaderGolfStats& stats, std::size_t golfed_byte_s
         ImGui::Text("Duplicate precision: %zu", static_cast<std::size_t>(stats.duplicate_precision_removed));
         ImGui::Text("Dead functions: %zu", static_cast<std::size_t>(stats.dead_functions_removed));
         ImGui::Text("Functions inlined: %zu", static_cast<std::size_t>(stats.functions_inlined));
+        ImGui::Text("Common subexpressions: %zu", static_cast<std::size_t>(stats.common_subexpressions_eliminated));
         ImGui::Columns(1);
     }
 

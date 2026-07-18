@@ -22,6 +22,7 @@ struct GolfPassToggles
     bool eliminate_dead_functions = true;
     bool inline_single_call_functions = true;
     bool simplify_algebraic_identities = true;
+    bool eliminate_common_subexpressions = true;
 };
 
 UshaderGolfOptions to_golf_options(const GolfPassToggles& toggles);

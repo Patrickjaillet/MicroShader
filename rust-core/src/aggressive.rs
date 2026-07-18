@@ -1,3 +1,4 @@
+use crate::expr::{parse_expr, Expr, ExprKind};
 use crate::lexer::Tok;
 use crate::vocab::type_keywords;
 use std::collections::{HashMap, HashSet};
@@ -26,6 +27,7 @@ pub struct AggressiveStats {
     pub dead_functions_removed: usize,
     pub functions_inlined: usize,
     pub algebraic_identities_simplified: usize,
+    pub common_subexpressions_eliminated: usize,
 }
 
 pub(crate) fn is_unary_prefix(c: char) -> bool {
@@ -738,6 +740,212 @@ pub fn simplify_algebraic_identities(items: Vec<Item>, stats: &mut AggressiveSta
                     i += 6;
                     continue;
                 }
+            }
+        }
+
+        out.push(items[i].clone());
+        i += 1;
+    }
+    out
+}
+
+fn is_pure_call_name(name: &str) -> bool {
+    if is_vector_or_matrix_constructor(name) {
+        return true;
+    }
+    matches!(
+        name,
+        "radians" | "degrees" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "sinh" | "cosh"
+            | "tanh" | "asinh" | "acosh" | "atanh" | "pow" | "exp" | "log" | "exp2" | "log2"
+            | "sqrt" | "inversesqrt" | "abs" | "sign" | "floor" | "trunc" | "round" | "roundEven"
+            | "ceil" | "fract" | "mod" | "modf" | "min" | "max" | "clamp" | "mix" | "step"
+            | "smoothstep" | "isnan" | "isinf" | "floatBitsToInt" | "floatBitsToUint"
+            | "intBitsToFloat" | "uintBitsToFloat" | "fma" | "length" | "distance" | "dot"
+            | "cross" | "normalize" | "faceforward" | "reflect" | "refract" | "matrixCompMult"
+            | "outerProduct" | "transpose" | "determinant" | "inverse" | "lessThan"
+            | "lessThanEqual" | "greaterThan" | "greaterThanEqual" | "equal" | "notEqual" | "any"
+            | "all" | "not"
+    )
+}
+
+fn is_vector_or_matrix_constructor(name: &str) -> bool {
+    matches!(
+        name,
+        "float" | "int" | "uint" | "bool" | "vec2" | "vec3" | "vec4" | "ivec2" | "ivec3" | "ivec4"
+            | "uvec2" | "uvec3" | "uvec4" | "bvec2" | "bvec3" | "bvec4" | "mat2" | "mat3" | "mat4"
+            | "mat2x2" | "mat2x3" | "mat2x4" | "mat3x2" | "mat3x3" | "mat3x4" | "mat4x2" | "mat4x3"
+            | "mat4x4"
+    )
+}
+
+fn expr_is_pure(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Number(_) | ExprKind::Ident(_) => true,
+        ExprKind::Unary(_, inner) | ExprKind::Paren(inner) => expr_is_pure(inner),
+        ExprKind::Binary(_, l, r) => expr_is_pure(l) && expr_is_pure(r),
+        ExprKind::Ternary(c, t, f) => expr_is_pure(c) && expr_is_pure(t) && expr_is_pure(f),
+        ExprKind::Call(name, args) => is_pure_call_name(name) && args.iter().all(expr_is_pure),
+        ExprKind::Index(b, idx) => expr_is_pure(b) && expr_is_pure(idx),
+        ExprKind::Member(b, _) => expr_is_pure(b),
+    }
+}
+
+struct CachedExpr {
+    expr: Expr,
+    type_name: String,
+    var_name: String,
+}
+
+struct SubDecl {
+    name_idx: usize,
+    initializer: Option<(Expr, usize, usize)>,
+}
+
+fn parse_declaration_statement(items: &[Item], start: usize) -> Option<(String, Vec<SubDecl>, usize)> {
+    let type_kw = type_keywords();
+    let type_name = match items.get(start).map(|it| &it.tok) {
+        Some(Tok::Ident(t)) if type_kw.contains(t.as_str()) => t.clone(),
+        _ => return None,
+    };
+    if !matches!(items.get(start + 1).map(|it| &it.tok), Some(Tok::Ident(_))) {
+        return None;
+    }
+
+    let mut subs: Vec<SubDecl> = Vec::new();
+    let mut i = start + 1;
+    loop {
+        let name_idx = i;
+        if !matches!(items.get(i).map(|it| &it.tok), Some(Tok::Ident(_))) {
+            return None;
+        }
+        i += 1;
+        if matches!(items.get(i).map(|it| &it.tok), Some(Tok::Punct('['))) {
+            return None;
+        }
+        if matches!(items.get(i).map(|it| &it.tok), Some(Tok::Punct('='))) {
+            let expr_start = i + 1;
+            let expr = parse_expr(items, expr_start)?;
+            let expr_end = expr.end;
+            i = expr_end;
+            subs.push(SubDecl {
+                name_idx,
+                initializer: Some((expr, expr_start, expr_end)),
+            });
+        } else {
+            subs.push(SubDecl {
+                name_idx,
+                initializer: None,
+            });
+        }
+        match items.get(i).map(|it| &it.tok) {
+            Some(Tok::Punct(',')) => {
+                i += 1;
+                continue;
+            }
+            Some(Tok::Punct(';')) => {
+                i += 1;
+                break;
+            }
+            _ => return None,
+        }
+    }
+    Some((type_name, subs, i))
+}
+
+/// Deduplicates declarations that initialize with a token-identical pure
+/// expression by rewriting the later ones to just reference the first
+/// variable, e.g. `float a=f(x),b=f(x);` -> `float a=f(x),b=a;`. Only
+/// matches whole declaration-statement initializers (never a sub-expression
+/// buried in a larger expression) built purely from identifiers, numbers,
+/// operators, member/swizzle access, and calls to a fixed whitelist of pure
+/// GLSL builtins/constructors, so nothing with a potential side effect is
+/// ever assumed identical. The candidate cache is cleared on every block
+/// boundary and on every statement that is not itself one of these clean
+/// declarations, so a match can only ever span a straight-line run of
+/// declarations with nothing else — including no plain assignment,
+/// unrecognized function call, or control-flow statement -- between them.
+pub fn eliminate_common_subexpressions(items: Vec<Item>, stats: &mut AggressiveStats) -> Vec<Item> {
+    let mut out: Vec<Item> = Vec::with_capacity(items.len());
+    let mut cache: Vec<CachedExpr> = Vec::new();
+    let mut i = 0;
+
+    while i < items.len() {
+        if matches!(items.get(i).map(|it| &it.tok), Some(Tok::Punct('{')) | Some(Tok::Punct('}'))) {
+            // Unconditional, regardless of what the previous token was: a brace can
+            // follow ')' (if/for/while/function headers) or "else" just as often as
+            // it follows ';', and every one of those is a scope boundary that could
+            // shadow a name a cached expression depends on.
+            cache.clear();
+            out.push(items[i].clone());
+            i += 1;
+            continue;
+        }
+
+        let at_boundary = out
+            .last()
+            .is_none_or(|it: &Item| matches!(it.tok, Tok::Punct(';') | Tok::Punct('{') | Tok::Punct('}')));
+
+        if at_boundary {
+            if let Some((type_name, subs, end)) = parse_declaration_statement(&items, i) {
+                out.push(items[i].clone());
+                for (idx, sub) in subs.iter().enumerate() {
+                    out.push(items[sub.name_idx].clone());
+                    if let Some((expr, rhs_start, rhs_end)) = &sub.initializer {
+                        out.push(items[rhs_start - 1].clone());
+
+                        let is_pure = expr_is_pure(expr);
+                        let cached_match = if is_pure {
+                            cache
+                                .iter()
+                                .find(|c| c.type_name == type_name && c.expr.structurally_eq(expr))
+                        } else {
+                            None
+                        };
+
+                        if let Some(cached) = cached_match {
+                            out.push(Item {
+                                tok: Tok::Ident(cached.var_name.clone()),
+                                text: cached.var_name.clone(),
+                                space_before: false,
+                            });
+                            stats.common_subexpressions_eliminated += 1;
+                        } else {
+                            for t in *rhs_start..*rhs_end {
+                                out.push(items[t].clone());
+                            }
+                            if is_pure {
+                                // `.text` (not `.tok`'s inner identifier string, which the
+                                // renaming pass deliberately leaves holding the pre-rename
+                                // name for other passes' benefit) is the actual rendered
+                                // name this declaration's variable will appear as in the
+                                // output, and therefore the only correct thing to reference
+                                // from a later duplicate.
+                                let var_name = items[sub.name_idx].text.clone();
+                                cache.push(CachedExpr {
+                                    expr: expr.clone(),
+                                    type_name: type_name.clone(),
+                                    var_name,
+                                });
+                            }
+                        }
+                    }
+                    if idx + 1 < subs.len() {
+                        out.push(Item {
+                            tok: Tok::Punct(','),
+                            text: ",".to_string(),
+                            space_before: false,
+                        });
+                    }
+                }
+                out.push(Item {
+                    tok: Tok::Punct(';'),
+                    text: ";".to_string(),
+                    space_before: false,
+                });
+                i = end;
+                continue;
+            } else {
+                cache.clear();
             }
         }
 

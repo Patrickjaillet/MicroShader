@@ -14,13 +14,14 @@ workspace with a custom borderless window frame.
 ## Features
 
 - **Golfing engine**: identifier renaming, numeric literal shortening,
-  and whitespace stripping always run; an aggressive mode adds 15
+  and whitespace stripping always run; an aggressive mode adds 16
   further transformation passes (dead-code elimination, constant
   folding, declaration merging, function inlining, algebraic identity
-  simplification, and more), each individually toggleable, plus a
-  protected-names list for identifiers that must never be renamed.
-  Every pass is designed to never change shader behavior — each ships
-  with its own regression fixture and Rust unit tests.
+  simplification, common subexpression elimination, and more), each
+  individually toggleable, plus a protected-names list for identifiers
+  that must never be renamed. Every pass is designed to never change
+  shader behavior — each ships with its own regression fixture and
+  Rust unit tests.
 - **Live viewport** with the standard Shadertoy uniform set (`iTime`,
   `iResolution`, `iMouse`, `iDate`, `iFrame`, `iFrameRate`), and a
   Compare mode that renders the source and golfed shaders side by

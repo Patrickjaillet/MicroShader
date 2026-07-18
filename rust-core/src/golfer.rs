@@ -1,7 +1,8 @@
 use crate::aggressive::{
-    compound_assignments, eliminate_dead_functions, eliminate_dead_locals, eliminate_dead_stores,
-    fold_additive_constants, fold_additive_float_constants, fold_constants, fold_float_constants,
-    increment_decrement, merge_declarations, reduce_constant_vectors, shortest_scientific_form,
+    compound_assignments, eliminate_common_subexpressions, eliminate_dead_functions,
+    eliminate_dead_locals, eliminate_dead_stores, fold_additive_constants,
+    fold_additive_float_constants, fold_constants, fold_float_constants, increment_decrement,
+    merge_declarations, reduce_constant_vectors, shortest_scientific_form,
     simplify_algebraic_identities, strip_duplicate_precision, strip_redundant_braces,
     strip_redundant_parens, strip_trailing_void_return, ternary_from_if_else, AggressiveStats, Item,
 };
@@ -400,6 +401,7 @@ pub struct AggressiveOptions {
     pub eliminate_dead_functions: bool,
     pub inline_single_call_functions: bool,
     pub simplify_algebraic_identities: bool,
+    pub eliminate_common_subexpressions: bool,
 }
 
 impl AggressiveOptions {
@@ -420,6 +422,7 @@ impl AggressiveOptions {
             eliminate_dead_functions: true,
             inline_single_call_functions: true,
             simplify_algebraic_identities: true,
+            eliminate_common_subexpressions: true,
         }
     }
 
@@ -440,6 +443,7 @@ impl AggressiveOptions {
             eliminate_dead_functions: false,
             inline_single_call_functions: false,
             simplify_algebraic_identities: false,
+            eliminate_common_subexpressions: false,
         }
     }
 }
@@ -571,6 +575,9 @@ pub fn golf_with_protected_names(
         }
         if aggressive.simplify_algebraic_identities {
             items = simplify_algebraic_identities(items, &mut aggressive_stats);
+        }
+        if aggressive.eliminate_common_subexpressions {
+            items = eliminate_common_subexpressions(items, &mut aggressive_stats);
         }
         if aggressive.compound_assignments {
             items = compound_assignments(items, &mut aggressive_stats);
@@ -1516,6 +1523,56 @@ mod tests {
         let r = golf("void f(){float a=pow(rand(),2.0);foo(a);}", true);
         assert_eq!(r.stats.aggressive.algebraic_identities_simplified, 0);
         assert!(r.code.contains("pow("));
+    }
+
+    #[test]
+    fn common_subexpression_elimination_reuses_the_first_variable() {
+        let r = golf(
+            "void f(vec3 p){float a=dot(p,p);float b=dot(p,p);foo(a,b);}",
+            true,
+        );
+        assert_eq!(r.stats.aggressive.common_subexpressions_eliminated, 1);
+        assert_eq!(r.code, "void d(vec3 a){float b=dot(a,a),c=b;foo(b,c);}");
+    }
+
+    #[test]
+    fn common_subexpression_elimination_references_the_actual_renamed_variable() {
+        // Regression test: the first implementation read the pre-rename identifier
+        // text out of Item::tok (which the renaming pass deliberately leaves
+        // untouched for other passes) instead of the post-rename Item::text,
+        // producing a reference to a name that was never actually declared (in
+        // this repro, the enclosing function's own new name) rather than to the
+        // variable that really held the cached value.
+        let r = golf(
+            "void f(){float d=dot(a,a);float e=dot(a,a);g(d,e);}",
+            true,
+        );
+        assert_eq!(r.stats.aggressive.common_subexpressions_eliminated, 1);
+        // The rewritten declaration must reference a name that was actually
+        // declared as a float immediately before it, never the function name.
+        assert_eq!(r.code, "void d(){float b=dot(a,a),c=b;g(b,c);}");
+    }
+
+    #[test]
+    fn common_subexpression_cache_does_not_survive_into_a_shadowing_block() {
+        // If the cache were not cleared on entering the nested block, "sin(p)"
+        // inside the if-branch would be wrongly matched against the outer
+        // "sin(p)" even though the inner "p" is a different, shadowed variable
+        // with a different value.
+        let r = golf(
+            "void f(){float p=1.0;float a=sin(p);if(true){float p=2.0;float b=sin(p);g(a,b);}}",
+            true,
+        );
+        assert_eq!(r.stats.aggressive.common_subexpressions_eliminated, 0);
+    }
+
+    #[test]
+    fn common_subexpression_cache_does_not_survive_a_plain_assignment() {
+        let r = golf(
+            "void f(vec3 p){float a=dot(p,p);p.x+=1.0;float b=dot(p,p);foo(a,b);}",
+            true,
+        );
+        assert_eq!(r.stats.aggressive.common_subexpressions_eliminated, 0);
     }
 
     #[test]
