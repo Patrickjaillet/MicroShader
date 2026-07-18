@@ -3,6 +3,9 @@
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
+#include "theme.h"
+#include "theme_tokens.h"
+
 UshaderGolfOptions to_golf_options(const GolfPassToggles& toggles)
 {
     if (!toggles.aggressive)
@@ -29,30 +32,36 @@ UshaderGolfOptions to_golf_options(const GolfPassToggles& toggles)
 
 void render_golf_controls(GolfPassToggles& toggles, std::string& protected_names)
 {
-    ImGui::Checkbox("Aggressive golf", &toggles.aggressive);
+    themed_checkbox("Aggressive golf", &toggles.aggressive);
 
     ImGui::BeginDisabled(!toggles.aggressive);
     if (ImGui::CollapsingHeader("PASSES"))
     {
         ImGui::Columns(2, nullptr, false);
-        ImGui::Checkbox("Dead locals", &toggles.eliminate_dead_locals);
-        ImGui::Checkbox("Dead stores", &toggles.eliminate_dead_stores);
-        ImGui::Checkbox("Fold constants", &toggles.fold_constants);
-        ImGui::Checkbox("Constant vectors", &toggles.reduce_constant_vectors);
-        ImGui::Checkbox("Trailing return", &toggles.strip_trailing_void_return);
-        ImGui::Checkbox("Compound assign", &toggles.compound_assignments);
-        ImGui::Checkbox("Increment/decrement", &toggles.increment_decrement);
+        themed_checkbox("Dead locals", &toggles.eliminate_dead_locals);
+        themed_checkbox("Dead stores", &toggles.eliminate_dead_stores);
+        themed_checkbox("Fold constants", &toggles.fold_constants);
+        themed_checkbox("Constant vectors", &toggles.reduce_constant_vectors);
+        themed_checkbox("Trailing return", &toggles.strip_trailing_void_return);
+        themed_checkbox("Compound assign", &toggles.compound_assignments);
+        themed_checkbox("Increment/decrement", &toggles.increment_decrement);
         ImGui::NextColumn();
-        ImGui::Checkbox("Ternary", &toggles.ternary_from_if_else);
-        ImGui::Checkbox("Merge declarations", &toggles.merge_declarations);
-        ImGui::Checkbox("Redundant braces", &toggles.strip_redundant_braces);
-        ImGui::Checkbox("Redundant parens", &toggles.strip_redundant_parens);
-        ImGui::Checkbox("Duplicate precision", &toggles.strip_duplicate_precision);
-        ImGui::Checkbox("Dead functions", &toggles.eliminate_dead_functions);
-        ImGui::Checkbox("Inline single-call", &toggles.inline_single_call_functions);
+        themed_checkbox("Ternary", &toggles.ternary_from_if_else);
+        themed_checkbox("Merge declarations", &toggles.merge_declarations);
+        themed_checkbox("Redundant braces", &toggles.strip_redundant_braces);
+        themed_checkbox("Redundant parens", &toggles.strip_redundant_parens);
+        themed_checkbox("Duplicate precision", &toggles.strip_duplicate_precision);
+        themed_checkbox("Dead functions", &toggles.eliminate_dead_functions);
+        themed_checkbox("Inline single-call", &toggles.inline_single_call_functions);
         ImGui::Columns(1);
     }
     ImGui::EndDisabled();
 
     ImGui::InputTextWithHint("Protected names", "comma-separated, e.g. myUniform", &protected_names);
+    if (ImGui::IsItemActive())
+    {
+        ImGui::GetWindowDrawList()->AddRect(
+            ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+            ImGui::GetColorU32(tokens::accent), ImGui::GetStyle().FrameRounding, 0, 1.5f);
+    }
 }

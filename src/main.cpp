@@ -540,7 +540,7 @@ int main(int argc, char* argv[])
         ImGui::End();
 
         ImGui::Begin(kGolfedWindowTitle);
-        if (ImGui::Checkbox("Formatted view", &formatted_view))
+        if (themed_checkbox("Formatted view", &formatted_view))
         {
             golfed_editor.SetText(formatted_view ? format_glsl(golfed_text) : golfed_text);
         }
@@ -564,7 +564,7 @@ int main(int argc, char* argv[])
         ImGui::End();
 
         ImGui::Begin(kViewportWindowTitle);
-        ImGui::Checkbox("Compare", &compare_mode);
+        themed_checkbox("Compare", &compare_mode);
         ImGui::SameLine();
         if (icon_button(ICON_CAMERA, "Screenshot"))
         {

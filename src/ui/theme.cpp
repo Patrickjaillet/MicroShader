@@ -124,3 +124,50 @@ void load_fonts(ImGuiIO& io, float base_size)
         0};
     g_icon_font = io.Fonts->AddFontFromFileTTF(icon_path.c_str(), base_size, &icon_config, icon_ranges);
 }
+
+bool themed_checkbox(const char* label, bool* value)
+{
+    ImGuiStyle& style = ImGui::GetStyle();
+    ImVec2 start = ImGui::GetCursorScreenPos();
+
+    const float box_size = 12.0f;
+    ImVec2 label_size = ImGui::CalcTextSize(label);
+    float row_height = ImGui::GetFontSize() > box_size ? ImGui::GetFontSize() : box_size;
+    ImVec2 total_size(box_size + style.ItemInnerSpacing.x + label_size.x, row_height);
+
+    ImGui::PushID(label);
+    bool pressed = ImGui::InvisibleButton("##themed_checkbox", total_size);
+    bool hovered = ImGui::IsItemHovered();
+    ImGui::PopID();
+
+    if (pressed)
+    {
+        *value = !*value;
+    }
+
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    float box_y = start.y + (total_size.y - box_size) * 0.5f;
+    ImVec2 box_min(start.x, box_y);
+    ImVec2 box_max(start.x + box_size, box_y + box_size);
+
+    if (*value)
+    {
+        draw_list->AddRectFilled(box_min, box_max, ImGui::GetColorU32(tokens::accent), 1.0f);
+        ImVec2 p1(box_min.x + 2.5f, box_min.y + 6.5f);
+        ImVec2 p2(box_min.x + 5.0f, box_min.y + 9.0f);
+        ImVec2 p3(box_min.x + 9.5f, box_min.y + 3.0f);
+        ImU32 check_color = ImGui::GetColorU32(tokens::text_primary);
+        draw_list->AddLine(p1, p2, check_color, 1.5f);
+        draw_list->AddLine(p2, p3, check_color, 1.5f);
+    }
+    else
+    {
+        ImU32 border_color = ImGui::GetColorU32(hovered ? tokens::accent : tokens::border_subtle);
+        draw_list->AddRect(box_min, box_max, border_color, 1.0f);
+    }
+
+    ImVec2 label_pos(box_max.x + style.ItemInnerSpacing.x, start.y + (total_size.y - label_size.y) * 0.5f);
+    draw_list->AddText(label_pos, ImGui::GetColorU32(ImGuiCol_Text), label);
+
+    return pressed;
+}

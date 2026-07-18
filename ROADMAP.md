@@ -370,15 +370,16 @@ section 5: Source, Golfed, Viewport, Stats, golf controls, About)
       secondary buttons; "Run golf" is now the one solid-`accent`-fill
       primary button (`accent.hover`/`accent.active` on interaction),
       via a `primary` flag on the shared icon-button helper.
-- [ ] Checkboxes: still the default ImGui checkbox shape (square-ish
-      at `FrameRounding` `2px`, `accent` check mark) rather than a
-      bespoke flat `12px` square with a drawn white check glyph.
+- [x] Checkboxes: bespoke flat `12px` square (`themed_checkbox()` in
+      `theme.cpp`), `border.subtle` outline idle, `accent` hover
+      outline, solid `accent` fill with a hand-drawn white check mark
+      when active — replaces every `ImGui::Checkbox` call site.
 - N/A Sliders: no numeric slider control exists anywhere in the UI yet
       (aggressive mode is a checkbox, not a level slider), so this
       bullet has nothing to style.
 - [x] Text inputs / protected-names field: `bg.field.sunken` body via
-      `FrameBg`. The `1px` `accent` focus-only ring was not
-      implemented (`FrameBorderSize` stays `0`).
+      `FrameBg`, plus a `1px` `accent` focus-only ring drawn on top
+      while the field `IsItemActive()`.
 - [x] Combo/dropdowns: flat, `bg.field.sunken` body via `FrameBg`,
       popup list on `bg.panel.raised` with `bg.hover` row highlight.
       Chevron/text render in `text.primary`, not `text.secondary`; no

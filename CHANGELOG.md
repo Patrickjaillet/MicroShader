@@ -2,6 +2,19 @@
 
 All notable changes to µShader are documented in this file.
 
+## [1.2.3] - 2026-07-18
+
+### Changed
+
+- Checkboxes (all 16 of them, across the golf-pass toggles, "Aggressive
+  golf", "Formatted view", and "Compare") are now a bespoke flat 12px
+  square matching the Phase 10 dark theme spec, instead of the default
+  ImGui circular-ish check — `border.subtle` outline idle, `accent`
+  outline on hover, solid `accent` fill with a hand-drawn white check
+  mark when active.
+- The "Protected names" text field now shows a 1px accent focus ring
+  while being edited.
+
 ## [1.2.2] - 2026-07-18
 
 ### Changed
