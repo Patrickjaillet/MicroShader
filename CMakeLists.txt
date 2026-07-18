@@ -136,6 +136,8 @@ add_executable(ushader
     src/ui/layout.cpp
     src/ui/glsl_language.cpp
     src/ui/glsl_format.cpp
+    src/ui/golf_controls.cpp
+    src/ui/stats_panel.cpp
 )
 
 target_include_directories(ushader PRIVATE

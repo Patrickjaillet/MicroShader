@@ -1,0 +1,27 @@
+#pragma once
+
+#include <string>
+
+#include "ushader/golf_core.h"
+
+struct GolfPassToggles
+{
+    bool aggressive = true;
+    bool eliminate_dead_locals = true;
+    bool eliminate_dead_stores = true;
+    bool fold_constants = true;
+    bool reduce_constant_vectors = true;
+    bool strip_trailing_void_return = true;
+    bool compound_assignments = true;
+    bool increment_decrement = true;
+    bool ternary_from_if_else = true;
+    bool merge_declarations = true;
+    bool strip_redundant_braces = true;
+    bool strip_redundant_parens = true;
+    bool strip_duplicate_precision = true;
+    bool eliminate_dead_functions = true;
+    bool inline_single_call_functions = true;
+};
+
+UshaderGolfOptions to_golf_options(const GolfPassToggles& toggles);
+void render_golf_controls(GolfPassToggles& toggles, std::string& protected_names);

@@ -2,6 +2,24 @@
 
 All notable changes to µShader are documented in this file.
 
+## [0.6.0] - Unreleased
+
+### Added
+
+- Golfing controls in the Source panel: an "Aggressive golf" master
+  toggle, individual checkboxes for each of the 14 aggressive
+  transformation passes, and a protected-names field (comma-separated
+  identifiers the engine will never rename).
+- Reduction stats panel in the Golfed panel: input/output char counts
+  and percentage reduction, golfed byte size, renamed/numbers-shortened
+  counts, a per-pass counter breakdown, and size-budget badges (280,
+  512, 1024 bytes).
+- "Compare" mode in the Viewport panel: renders the Source and Golfed
+  shaders side by side, each in its own offscreen framebuffer, to
+  visually confirm golfing didn't change the output.
+- The Rust `capi` now returns full golf statistics (`UshaderGolfStats`)
+  alongside the golfed code, not just the code string.
+
 ## [0.5.0] - Unreleased
 
 ### Added

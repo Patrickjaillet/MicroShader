@@ -25,11 +25,36 @@ typedef struct {
     bool inline_single_call_functions;
 } UshaderGolfOptions;
 
+typedef struct {
+    uintptr_t input_chars;
+    uintptr_t output_chars;
+    double reduction_pct;
+    uintptr_t renamed_count;
+    uintptr_t numbers_shortened;
+    uintptr_t compound_assignments;
+    uintptr_t declarations_merged;
+    uintptr_t braces_removed;
+    uintptr_t constants_folded;
+    uintptr_t dead_locals_removed;
+    uintptr_t dead_stores_removed;
+    uintptr_t constant_vectors_reduced;
+    uintptr_t trailing_void_returns_removed;
+    uintptr_t increments_decrements;
+    uintptr_t ternaries_from_if_else;
+    uintptr_t redundant_parens_removed;
+    uintptr_t duplicate_precision_removed;
+    uintptr_t dead_functions_removed;
+    uintptr_t functions_inlined;
+} UshaderGolfStats;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
 
-char *ushader_golf(const char *source, UshaderGolfOptions options, const char *protected_names);
+char *ushader_golf(const char *source,
+                   UshaderGolfOptions options,
+                   const char *protected_names,
+                   UshaderGolfStats *out_stats);
 
 void ushader_free_string(char *s);
 

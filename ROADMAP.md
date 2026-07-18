@@ -212,12 +212,12 @@ capture), and a commit+push to
 
 ### Phase 5 — v0.6.x — Golfing controls & stats
 
-- [ ] Aggressive level selector + individual pass toggles for the
+- [x] Aggressive level selector + individual pass toggles for the
       golfing engine's transformation passes
-- [ ] Protected-names input field
-- [ ] Reduction stats panel: char counts, byte count, renamed count,
+- [x] Protected-names input field
+- [x] Reduction stats panel: char counts, byte count, renamed count,
       numbers-shortened count, per-pass counters, size-budget badges
-- [ ] "Compare" mode: source vs. golfed single-pass viewport,
+- [x] "Compare" mode: source vs. golfed single-pass viewport,
       side-by-side
 
 ### Phase 6 — v0.7.x — Import / export / capture

@@ -1,4 +1,4 @@
-use crate::golfer::{golf_with_protected_names, AggressiveOptions};
+use crate::golfer::{golf_with_protected_names, AggressiveOptions, GolfStats};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
@@ -41,11 +41,61 @@ impl From<UshaderGolfOptions> for AggressiveOptions {
     }
 }
 
+#[repr(C)]
+pub struct UshaderGolfStats {
+    pub input_chars: usize,
+    pub output_chars: usize,
+    pub reduction_pct: f64,
+    pub renamed_count: usize,
+    pub numbers_shortened: usize,
+    pub compound_assignments: usize,
+    pub declarations_merged: usize,
+    pub braces_removed: usize,
+    pub constants_folded: usize,
+    pub dead_locals_removed: usize,
+    pub dead_stores_removed: usize,
+    pub constant_vectors_reduced: usize,
+    pub trailing_void_returns_removed: usize,
+    pub increments_decrements: usize,
+    pub ternaries_from_if_else: usize,
+    pub redundant_parens_removed: usize,
+    pub duplicate_precision_removed: usize,
+    pub dead_functions_removed: usize,
+    pub functions_inlined: usize,
+}
+
+impl From<GolfStats> for UshaderGolfStats {
+    fn from(s: GolfStats) -> Self {
+        UshaderGolfStats {
+            input_chars: s.input_chars,
+            output_chars: s.output_chars,
+            reduction_pct: s.reduction_pct,
+            renamed_count: s.renamed_count,
+            numbers_shortened: s.numbers_shortened,
+            compound_assignments: s.aggressive.compound_assignments,
+            declarations_merged: s.aggressive.declarations_merged,
+            braces_removed: s.aggressive.braces_removed,
+            constants_folded: s.aggressive.constants_folded,
+            dead_locals_removed: s.aggressive.dead_locals_removed,
+            dead_stores_removed: s.aggressive.dead_stores_removed,
+            constant_vectors_reduced: s.aggressive.constant_vectors_reduced,
+            trailing_void_returns_removed: s.aggressive.trailing_void_returns_removed,
+            increments_decrements: s.aggressive.increments_decrements,
+            ternaries_from_if_else: s.aggressive.ternaries_from_if_else,
+            redundant_parens_removed: s.aggressive.redundant_parens_removed,
+            duplicate_precision_removed: s.aggressive.duplicate_precision_removed,
+            dead_functions_removed: s.aggressive.dead_functions_removed,
+            functions_inlined: s.aggressive.functions_inlined,
+        }
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn ushader_golf(
     source: *const c_char,
     options: UshaderGolfOptions,
     protected_names: *const c_char,
+    out_stats: *mut UshaderGolfStats,
 ) -> *mut c_char {
     if source.is_null() {
         return std::ptr::null_mut();
@@ -70,6 +120,12 @@ pub extern "C" fn ushader_golf(
     };
 
     let result = golf_with_protected_names(source, options.into(), &names);
+
+    if !out_stats.is_null() {
+        unsafe {
+            *out_stats = result.stats.into();
+        }
+    }
 
     match CString::new(result.code) {
         Ok(c_string) => c_string.into_raw(),
