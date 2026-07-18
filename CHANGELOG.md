@@ -2,6 +2,16 @@
 
 All notable changes to µShader are documented in this file.
 
+## [1.2.2] - 2026-07-18
+
+### Changed
+
+- "Run golf" is now the one accent-filled primary button in the UI
+  (solid `accent` background, hover/active accent shades), matching
+  Phase 10's design intent that it be the single clearly-primary
+  surface — every other button now reads as visually secondary by
+  comparison.
+
 ## [1.2.1] - 2026-07-18
 
 ### Changed
