@@ -45,11 +45,8 @@ These conventions apply to every phase below and must never regress.
 
 - White theme only, English only: no language toggle, no `i18n`
   module — this is a deliberate design decision, not a limitation.
-- "No comments in the source code" applies to the µShader C++/C
-  codebase only. `rust-core/` keeps its own doc comments — stripping
-  a mature, already-tested engine's comments would add risk for no
-  benefit. Only C ABI glue code written for the bridge follows the
-  no-comments rule.
+- "No comments in the source code" applies uniformly across the whole
+  codebase, `rust-core/` included.
 
 ---
 
@@ -151,19 +148,19 @@ capture), and a commit+push to
 
 ### Phase 1 — v0.2.x — Rust core → native C ABI bridge
 
-- [ ] Implement `rust-core/`: a tokenizer-based GLSL minifier
+- [x] Implement `rust-core/`: a tokenizer-based GLSL minifier
       (renaming, number-shortening, whitespace stripping, and
       aggressive passes such as dead-code elimination, constant
       folding, declaration merging)
-- [ ] Add `capi` feature + `src/capi.rs`: `extern "C"` wrappers around
+- [x] Add `capi` feature + `src/capi.rs`: `extern "C"` wrappers around
       `golf_with_protected_names` returning heap C strings, plus a
       matching `ushader_free_string`
-- [ ] Generate `include/ushader/golf_core.h` with `cbindgen`, commit it
-- [ ] Build `rust-core` as a static lib for `x86_64-pc-windows-msvc`,
+- [x] Generate `include/ushader/golf_core.h` with `cbindgen`, commit it
+- [x] Build `rust-core` as a static lib for `x86_64-pc-windows-msvc`,
       link into a throwaway console test target
-- [ ] Verify golf output against a regression fixture corpus
+- [x] Verify golf output against a regression fixture corpus
       (`fixtures/*.glsl`) covering each transformation pass
-- [ ] CMake wiring: Cargo build invoked from CMake, static lib linked
+- [x] CMake wiring: Cargo build invoked from CMake, static lib linked
       into the main target
 
 ### Phase 2 — v0.3.x — Window & rendering

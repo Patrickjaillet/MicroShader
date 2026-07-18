@@ -95,6 +95,28 @@ target_include_directories(imgui PUBLIC
 )
 target_link_libraries(imgui PUBLIC SDL3::SDL3)
 
+set(RUST_CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/rust-core)
+set(RUST_CORE_LIB ${RUST_CORE_DIR}/target/release/ushader_core.lib)
+file(GLOB_RECURSE RUST_CORE_SOURCES ${RUST_CORE_DIR}/src/*.rs)
+
+find_program(CARGO_EXECUTABLE cargo REQUIRED)
+
+add_custom_command(
+    OUTPUT ${RUST_CORE_LIB}
+    COMMAND ${CARGO_EXECUTABLE} build --release --features capi
+    WORKING_DIRECTORY ${RUST_CORE_DIR}
+    DEPENDS ${RUST_CORE_DIR}/Cargo.toml ${RUST_CORE_SOURCES}
+    COMMENT "Building rust-core"
+    VERBATIM
+)
+add_custom_target(rust_core_build DEPENDS ${RUST_CORE_LIB})
+
+add_library(rust_core STATIC IMPORTED GLOBAL)
+set_target_properties(rust_core PROPERTIES IMPORTED_LOCATION ${RUST_CORE_LIB})
+add_dependencies(rust_core rust_core_build)
+target_include_directories(rust_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(rust_core INTERFACE ws2_32 userenv advapi32 bcrypt ntdll)
+
 add_executable(ushader
     src/main.cpp
 )
@@ -108,4 +130,11 @@ target_link_libraries(ushader PRIVATE
     SDL3::SDL3
     imgui
     opengl32
+    rust_core
 )
+
+add_executable(rust_core_smoke_test
+    tests/rust_core_smoke_test.cpp
+)
+
+target_link_libraries(rust_core_smoke_test PRIVATE rust_core)

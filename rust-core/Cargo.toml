@@ -1,0 +1,24 @@
+[package]
+name = "ushader_core"
+version = "0.1.0"
+edition = "2021"
+description = "Tokenizer-based GLSL minification engine"
+license = "MIT"
+publish = false
+
+[lib]
+name = "ushader_core"
+crate-type = ["staticlib", "rlib"]
+
+[[bin]]
+name = "golf"
+path = "src/bin/golf.rs"
+
+[features]
+default = []
+capi = []
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

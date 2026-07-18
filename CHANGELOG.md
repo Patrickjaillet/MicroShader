@@ -2,6 +2,24 @@
 
 All notable changes to µShader are documented in this file.
 
+## [0.2.0] - Unreleased
+
+### Added
+
+- `rust-core/`: a tokenizer-based GLSL minification engine (identifier
+  renaming, numeric literal shortening, whitespace stripping, and
+  aggressive passes: dead-code elimination, constant folding,
+  declaration merging, and more).
+- `capi` feature (`rust-core/src/capi.rs`) exposing the engine through
+  a small `extern "C"` surface (`ushader_golf`, `ushader_free_string`).
+- `include/ushader/golf_core.h`, generated with `cbindgen`.
+- `fixtures/*.glsl`: a regression corpus covering each transformation
+  pass, used to verify golf output.
+- `tests/rust_core_smoke_test.cpp`: a console test target exercising
+  the C ABI bridge end to end.
+- CMake now builds `rust-core` via Cargo and links it into both the
+  smoke test and the main application.
+
 ## [0.1.0] - Unreleased
 
 ### Added
