@@ -1,0 +1,15 @@
+/build/
+/out/
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.lib
+.vs/
+CMakeUserPresets.json
+/rust-core/target/
+Cargo.lock
+
+/ancien/
+/CLAUDE.md
