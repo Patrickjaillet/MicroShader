@@ -2,6 +2,20 @@
 
 All notable changes to µShader are documented in this file.
 
+## [1.2.0] - 2026-07-18
+
+### Changed
+
+- MP4/WebM viewport recording no longer depends on a system-installed
+  `ffmpeg` on `PATH`. A static `ffmpeg.exe` (GPL build from
+  `BtbN/FFmpeg-Builds`) is now fetched at build time, copied next to
+  `ushader.exe`, and included in the installer, so MP4/WebM work out
+  of the box on a fresh install. The Record UI falls back to
+  disabling MP4/WebM (with a tooltip) only if the bundled binary is
+  somehow missing.
+- Added `THIRD_PARTY_NOTICES.md` documenting the bundled FFmpeg (GPL)
+  binary, referenced from the About popup.
+
 ## [1.1.0] - 2026-07-18
 
 ### Added

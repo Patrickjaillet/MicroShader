@@ -410,7 +410,7 @@ int main(int argc, char* argv[])
         ImGui::EndDisabled();
         if (record_disabled && ImGui::IsItemHovered())
         {
-            ImGui::SetTooltip("Requires ffmpeg on PATH");
+            ImGui::SetTooltip("Bundled ffmpeg.exe not found next to the application");
         }
         if (recorder.is_recording())
         {

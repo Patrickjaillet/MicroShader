@@ -88,6 +88,19 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(gifh)
 
+FetchContent_Declare(
+    ffmpeg_bin
+    URL https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip
+)
+FetchContent_MakeAvailable(ffmpeg_bin)
+
+file(GLOB_RECURSE FFMPEG_EXE_CANDIDATES ${ffmpeg_bin_SOURCE_DIR}/bin/ffmpeg.exe)
+list(LENGTH FFMPEG_EXE_CANDIDATES FFMPEG_EXE_CANDIDATE_COUNT)
+if(FFMPEG_EXE_CANDIDATE_COUNT EQUAL 0)
+    message(FATAL_ERROR "ffmpeg.exe not found in downloaded ffmpeg archive")
+endif()
+list(GET FFMPEG_EXE_CANDIDATES 0 FFMPEG_EXE)
+
 add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -185,6 +198,9 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy
         ${CMAKE_CURRENT_SOURCE_DIR}/docs/logo.png
         $<TARGET_FILE_DIR:ushader>/assets/branding/logo.png
+    COMMAND ${CMAKE_COMMAND} -E copy
+        ${FFMPEG_EXE}
+        $<TARGET_FILE_DIR:ushader>/ffmpeg.exe
 )
 
 add_executable(rust_core_smoke_test

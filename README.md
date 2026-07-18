@@ -32,7 +32,8 @@ viewport.
   output to the clipboard, export in Shadertoy format, and capture
   the viewport to a PNG screenshot.
 - **Viewport recording**: capture the running shader to an animated
-  GIF, or to MP4/WebM when `ffmpeg` is available on `PATH`.
+  GIF, or to MP4/WebM via a bundled `ffmpeg.exe` — no separate
+  install required.
 
 ## Installing
 
@@ -68,7 +69,10 @@ and run:
 
 ## License
 
-[MIT](LICENSE) — free to reuse, modify, and redistribute.
+[MIT](LICENSE) — free to reuse, modify, and redistribute. Bundles a
+GPL-licensed `ffmpeg.exe` for MP4/WebM recording as a standalone
+executable invoked as a subprocess; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## About
 

@@ -54,6 +54,7 @@ void render_about_popup(bool& show_about, const Texture& logo)
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::TextUnformatted("MIT License");
+        ImGui::TextUnformatted("Includes FFmpeg (GPL) for MP4/WebM recording - see THIRD_PARTY_NOTICES.md");
 
         ImGui::Spacing();
         if (ImGui::Button("Close"))

@@ -256,11 +256,14 @@ capture), and a commit+push to
 Deliberately out of scope until requested explicitly:
 
 - [x] Video (Webm, Mp4) /GIF recording of the viewport — GIF encoding
-      is always available (bundled `gif-h`); MP4/WebM require `ffmpeg`
-      on `PATH` and are automatically disabled in the UI (with a
-      tooltip) when it isn't found. MP4/WebM have not been exercised
-      in the current build environment since `ffmpeg` is not
-      installed there; GIF recording was tested end to end.
+      is always available (bundled `gif-h`). MP4/WebM encode through a
+      bundled `ffmpeg.exe` (fetched at build time from
+      `BtbN/FFmpeg-Builds`, copied next to `ushader.exe`, and shipped
+      by the installer), so no system `ffmpeg` install or `PATH` entry
+      is required; the UI still disables MP4/WebM with a tooltip if
+      the bundled binary is ever missing. See
+      `THIRD_PARTY_NOTICES.md` for the FFmpeg (GPL) attribution this
+      bundling requires.
 
 ---
 

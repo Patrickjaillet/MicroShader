@@ -4,6 +4,8 @@
 #define NOMINMAX
 #include <windows.h>
 
+#include <SDL3/SDL.h>
+
 #include <algorithm>
 #include <cstring>
 #include <sstream>
@@ -54,6 +56,14 @@ namespace
             std::memcpy(dst_row, src_row, row_bytes);
         }
     }
+
+    std::wstring ffmpeg_executable_path()
+    {
+        const char* base_path = SDL_GetBasePath();
+        std::string path = base_path != nullptr ? base_path : "./";
+        path += "ffmpeg.exe";
+        return utf8_to_wide(path);
+    }
 }
 
 bool ffmpeg_available()
@@ -66,14 +76,23 @@ bool ffmpeg_available()
     }
     checked = true;
 
+    std::wstring exe_path = ffmpeg_executable_path();
+    if (GetFileAttributesW(exe_path.c_str()) == INVALID_FILE_ATTRIBUTES)
+    {
+        return false;
+    }
+
     STARTUPINFOW startup_info{};
     startup_info.cb = sizeof(startup_info);
     startup_info.dwFlags = STARTF_USESHOWWINDOW;
     startup_info.wShowWindow = SW_HIDE;
     PROCESS_INFORMATION process_info{};
 
-    wchar_t command_line[] = L"ffmpeg -version";
-    BOOL created = CreateProcessW(nullptr, command_line, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup_info, &process_info);
+    std::wstring command_line = L"\"" + exe_path + L"\" -version";
+    std::vector<wchar_t> command_buffer(command_line.begin(), command_line.end());
+    command_buffer.push_back(L'\0');
+
+    BOOL created = CreateProcessW(nullptr, command_buffer.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr, &startup_info, &process_info);
     if (!created)
     {
         return false;
@@ -147,7 +166,7 @@ bool ViewportRecorder::start(RecordingFormat format, int in_width, int in_height
     gif_temp_path = ascii_temp_file_path(format == RecordingFormat::Mp4 ? "ushader_recording.mp4" : "ushader_recording.webm");
 
     std::wstringstream command;
-    command << L"ffmpeg -y -f rawvideo -pixel_format rgba -video_size " << width << L"x" << height
+    command << L"\"" << ffmpeg_executable_path() << L"\" -y -f rawvideo -pixel_format rgba -video_size " << width << L"x" << height
             << L" -framerate " << fps << L" -i - -vf vflip ";
     if (format == RecordingFormat::Mp4)
     {

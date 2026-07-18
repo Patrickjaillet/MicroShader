@@ -35,8 +35,10 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 Source: "..\build\ushader.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\build\ffmpeg.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\build\assets\fonts\*"; DestDir: "{app}\assets\fonts"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\build\assets\branding\*"; DestDir: "{app}\assets\branding"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\uShader"; Filename: "{app}\{#MyAppExeName}"
