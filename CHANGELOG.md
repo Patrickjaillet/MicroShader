@@ -2,6 +2,255 @@
 
 All notable changes to µShader are documented in this file.
 
+## [2.0.1] - 2026-07-20
+
+### Added
+
+- Drag-and-drop `.glsl` files onto the main window to open each as a
+  new tab, reusing the existing Phase 16 tab strip.
+- Recent Files list under the File menu, backed by the same
+  `%APPDATA%\ushader\` store used for keybindings. Selecting an entry
+  reopens it as a new tab; entries pointing at files that no longer
+  exist on disk are pruned automatically. Includes a "Clear Recent
+  Files" action.
+- Opening or saving a file (via the Open/Save/Save as dialogs, the
+  new drag-and-drop path, or a Recent Files entry) now records that
+  path in the Recent Files list.
+
+This completes the last outstanding Phase 18 item (v1.9.x); Phase 19
+had already shipped as 2.0.0 before this item was finished, so this
+lands as a 2.0.x patch rather than 1.9.2.
+
+## [2.0.0] - 2026-07-19
+
+### Added
+
+- Local session reports (Phase 19): "Export report..." in the File
+  menu and the command palette writes a single self-contained HTML
+  file with no external references — it opens correctly with zero
+  network access, including on an offline judge's machine. The report
+  includes the source and golfed code (both syntax-highlighted with
+  the same rules the editors use, golfed code shown formatted for
+  readability), the size/budget summary and per-pass counters, and
+  the automated equivalence-check result.
+- Optional embedded viewport screenshot in the report, reusing the
+  existing PNG capture path, inlined as a base64 image. Off by default
+  via a new "Include screenshot in report" checkbox next to the
+  Screenshot button, to keep the report file small when not wanted.
+
+## [1.9.1] - 2026-07-19
+
+### Added
+
+- Diff panel: a "Diff" tab alongside Trace shows a token-level unified
+  diff between Source and Golfed, with removed spans struck through in
+  the error color and added spans in the ok color. Built directly on
+  the Phase 14 trace data's overall before/after pair, with its own
+  small LCS-based token diff (falling back to a line-level diff for
+  very large inputs) rather than a new diff engine.
+- "Show Diff panel" added to the command palette.
+
+## [1.9.0] - 2026-07-19
+
+### Added
+
+- Command palette (`Ctrl+Shift+P`, Premiere/VS-Code convention): a
+  fuzzy-searchable list dispatching to every existing action (run
+  golf, toggle a pass, load/save profile, switch tab, toggle Compare
+  mode, export), plus a new "Switch to tab: …" entry per open tab and
+  a "Toggle Minimap" entry.
+- Rebindable keyboard shortcuts: the command palette, new tab, open,
+  save, and close-tab shortcuts can now be rebound from a new
+  "Keyboard Shortcuts" tab next to "About", and are persisted to
+  `%APPDATA%\ushader\keybindings.json`. Hardcoded defaults are used
+  whenever the file is absent or malformed, so the app is never left
+  without shortcuts.
+- Minimap for the Source and Golfed editors: a compact colored strip
+  reusing the same GLSL keyword/identifier tables and syntax palette
+  as the editors themselves, off by default and only shown once a tab
+  toggles it on and the file is at or above a configurable line-count
+  threshold.
+
+## [1.8.0] - 2026-07-19
+
+### Added
+
+- Batch pipeline mode for the `golf` CLI (Phase 17), for embedding
+  µShader in an offline asset pipeline. Passing a directory or a glob
+  (containing `*` or `?`) golfs every `.glsl` file found — reusing the
+  exact `golf_with_protected_names` entry point the GUI calls, so CLI
+  and GUI output can never diverge — and writes each result next to its
+  input as `<name>.min.glsl` (already-golfed `.min.glsl` files are
+  skipped so re-runs are idempotent). Single-file and stdin usage is
+  unchanged.
+- `--profile <path.ushaderprofile>`: load the exact pass toggles,
+  protected-names list and budget preset an artist last saved in the
+  GUI as the base configuration; explicit CLI flags still override it.
+- `--budget <preset>`: consumes the Phase 12 budget presets and exits
+  with a non-zero status when any file's estimate exceeds the
+  threshold — the mechanism a CI job needs to fail a build on a size
+  regression.
+- `--report <path.json|path.csv>`: machine-readable per-file report
+  (input path, raw/golfed/compressed byte counts, per-pass
+  `AggressiveStats` counters, and pass/fail against the budget) for
+  pipeline dashboards.
+- `--diff`: prints a unified source/golfed diff per file to stdout
+  instead of writing golfed output, for a pre-commit dry-run.
+- `--pretty`: opts into colored, human-oriented console output. By
+  default the CLI emits no ANSI color or progress spinners so its
+  output stays clean when redirected into CI logs.
+
+## [1.7.0] - 2026-07-19
+
+### Added
+
+- Multi-document workspace (Phase 16). A tab strip above the
+  Source/Golfed/Viewport dock holds one tab per open `.glsl` file,
+  reusing the flat-rectangle tab language with an accent-underlined
+  active tab. Each tab owns its own editor buffer, golf result,
+  compile error, pass toggles, protected-names list, budget preset,
+  golf/budget stats, pass trace, and equivalence result. Switching
+  tabs recompiles only the newly-active tab's GL programs and never
+  re-runs the golf engine on the tab you left. A trailing `+` tab
+  button and a new `File` menu (`New tab` Ctrl+N, `Open` Ctrl+O,
+  `Save` Ctrl+S, `Save as...`, `Close tab` Ctrl+W, `Exit`) manage the
+  open set.
+- Session persistence (Phase 16). On clean exit the workspace is
+  auto-saved to
+  `%APPDATA%\ushader\last_session.ushaderworkspace` — a JSON superset
+  of the `.ushaderprofile` format storing every open file path, the
+  active tab index, and each tab's pass toggles, protected names and
+  budget preset. The Dear ImGui panel layout is persisted alongside it
+  to `%APPDATA%\ushader\layout.ini` and referenced by name. On next
+  launch a "Restore last session?" prompt offers to reopen those files
+  (or start fresh); files are never silently reopened.
+- Unsaved-changes indicators (Phase 16). A dot marks any tab whose
+  source differs from its saved contents, closing a dirty tab asks to
+  save/discard/cancel, and exiting with unsaved shaders opens a
+  confirmation dialog listing every dirty tab before quitting.
+
+## [1.6.0] - 2026-07-19
+
+### Added
+
+- Automated multi-frame equivalence safety net (Phase 15, in progress),
+  internal to `render/shader_runner` for now. `EquivalenceSampleConfig`
+  holds a configurable, user-editable list of `iTime` sample points
+  (defaulting to `0.0, 0.5, 1.0, 2.5, 5.0`) and a fixed sample
+  resolution; `run_equivalence_samples()` renders the already-compiled
+  source and golfed programs Compare mode uses at every sample `iTime`
+  into a caller-owned scratch framebuffer pair, invoking a callback
+  with the rendered pair per sample. Every uniform besides `iTime` —
+  `iResolution`, `iMouse`, and also `iFrame`/`iFrameRate`/`iDate` — is
+  pinned to a fixed value on every sample and every run, so repeated
+  equivalence checks of the same program pair always compare identical
+  inputs. No pixel readback/diffing or UI surface yet — this lands the
+  offscreen dual-render foundation the upcoming per-sample
+  `glReadPixels` diff and pass/fail indicator will build on.
+
+## [1.5.0] - 2026-07-19
+
+### Added
+
+- Pass-by-pass golf trace (Phase 14, in progress), internal to
+  `rust-core` for now. The golfing engine can now optionally record a
+  before/after source snapshot and a change count for every
+  transformation pass it runs, in fixpoint-iteration order, without
+  any cost to the normal (untraced) golfing path used everywhere in
+  the app today. No user-visible UI or CLI surface yet — this lands
+  the `rust-core` foundation the upcoming "Trace" tab and
+  `--diff`-style tooling will build on.
+- `ushader_golf_traced`, a new C ABI entry point built on the above:
+  golfs a shader exactly like `ushader_golf`, but also fills an
+  out-parameter with a serialized JSON trace of every enabled pass
+  considered, in order, each with its before/after source and change
+  count. Still no user-visible UI or CLI surface — this is the C ABI
+  bridge the upcoming "Trace" tab will call into.
+- A new "Trace" tab, docked alongside Source/Golfed/Viewport: a
+  collapsible list of every golfing pass considered on the last run,
+  with its change count. Expanding a pass shows a side-by-side
+  before/after view of that pass's own delta only, syntax-highlighted
+  the same way as the Source and Golfed editors. Passes that made no
+  change are still listed, grayed out, so the trace is always a
+  complete record of what the golfer considered.
+- `fixtures/golf_trace.glsl`: a regression fixture for the Phase 14
+  trace, plus a new `trace_pass_order_and_counts_match_fixture_regression`
+  Rust unit test in `golfer.rs` that asserts its exact pass-order and
+  per-pass-count sequence (two fixpoint iterations, 32 steps total).
+  Guards against the fixpoint loop in `golf_with_protected_names_impl`
+  silently reordering, adding, or dropping a pass — a regression none
+  of the existing per-pass unit tests would catch on their own.
+
+## [1.4.1] - 2026-07-19
+
+### Added
+
+- `fixtures/sample.ushaderprofile`: a checked-in sample profile (a
+  mixed, `Custom` set of pass toggles, a protected-names list, and a
+  named budget preset) plus a new
+  `tests/golf_profile_roundtrip_test.cpp` executable that saves,
+  reloads, and re-checks it — confirming every `AggressiveOptions`
+  pass toggle, the protected-names list, and the selected budget
+  preset survive a `.ushaderprofile` save/reload cycle unchanged, and
+  that the reloaded options still golf correctly through the real
+  Rust `rust-core` engine.
+
+## [1.4.0] - 2026-07-19
+
+### Added
+
+- Golfing profiles (Phase 13, in progress). The golf controls panel
+  gained "Save profile…" / "Load profile…" buttons that write/read a
+  `.ushaderprofile` JSON file capturing every pass toggle, the
+  protected-names list, and the selected Phase 12 budget preset, so a
+  competitive-golf configuration can be reused across sessions instead
+  of re-toggling every checkbox. Uses the existing native file-dialog
+  integration; no new dialog code path.
+- A new "Profile" combo alongside the pass toggles offers three
+  built-in, read-only presets — `Maximum` (every pass on), `Safe`
+  (dead-code elimination only, no algebraic/CSE rewrites), and `None`
+  (aggressive mode off) — and reflects `Custom` whenever the current
+  toggles (including ones loaded from a file) don't match any of the
+  three.
+- The last `.ushaderprofile` path used with `Save profile…`/`Load
+  profile…` is now remembered across restarts (stored in
+  `%APPDATA%\ushader\last_profile_path.txt`) and pre-fills both
+  dialogs on the next launch. This remembers the path only — it does
+  not auto-load the profile's contents at startup, so no golf setting
+  changes without an explicit `Load profile…` click. A fixtures
+  round-trip test is tracked separately in `ROADMAP.md` and not yet
+  implemented.
+
+## [1.3.1] - 2026-07-19
+
+### Changed
+
+- The application now launches maximized (`SDL_MaximizeWindow` called
+  right after window creation) instead of opening at the fixed
+  1280x720 default size. The existing title-bar maximize/restore
+  toggle is unchanged; the window can still be restored to its
+  windowed size the same way as before.
+
+## [1.3.0] - 2026-07-19
+
+### Added
+
+- Compression-aware size budgets (Phase 12). The stats panel no
+  longer measures golf size only in raw characters/bytes: every golf
+  run now also estimates the DEFLATE-compressed size (fixed-Huffman,
+  RFC 1951, computed entirely in `rust-core`, no external compression
+  library and no network access) since that is what competitive
+  code-golf and demoscene size limits actually judge.
+- New "Budget preset" combo in the golf controls panel: `Shadertoy`,
+  `X/Twitter shader`, `JS13K-style 13KB`, `4KB intro`, `8KB intro`,
+  `64KB intro`. The stats panel shows a raw-byte badge and/or a
+  compressed-byte badge against the selected preset's threshold,
+  colored green/amber/red as the estimate sits under, near, or over
+  budget.
+- New C ABI entry point `ushader_estimate_budget` (declared in the
+  regenerated `include/ushader/golf_core.h`) returning both the raw
+  and DEFLATE-estimated byte counts for a golfed shader.
+
 ## [1.2.5] - 2026-07-19
 
 ### Added

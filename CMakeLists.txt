@@ -161,11 +161,24 @@ add_executable(ushader
     src/platform/recorder.cpp
     src/ui/theme.cpp
     src/ui/layout.cpp
+    src/ui/document.cpp
+    src/ui/workspace.cpp
     src/ui/glsl_language.cpp
     src/ui/glsl_format.cpp
     src/ui/golf_controls.cpp
+    src/ui/golf_profile.cpp
+    src/ui/golf_trace.cpp
+    src/ui/budget_presets.cpp
     src/ui/stats_panel.cpp
     src/ui/about_panel.cpp
+    src/ui/equivalence_controls.cpp
+    src/ui/command_palette.cpp
+    src/ui/keybindings.cpp
+    src/ui/recent_files.cpp
+    src/ui/minimap.cpp
+    src/ui/diff_view.cpp
+    src/report/report.cpp
+    src/report/report_encoding.cpp
     assets/icons/app.rc
 )
 
@@ -211,3 +224,39 @@ add_executable(rust_core_smoke_test
 )
 
 target_link_libraries(rust_core_smoke_test PRIVATE rust_core)
+
+add_executable(golf_profile_roundtrip_test
+    tests/golf_profile_roundtrip_test.cpp
+    src/ui/golf_profile.cpp
+    src/ui/budget_presets.cpp
+    src/platform/paths.cpp
+    src/platform/utf8.cpp
+)
+
+target_link_libraries(golf_profile_roundtrip_test PRIVATE
+    SDL3::SDL3
+    rust_core
+)
+
+target_compile_definitions(golf_profile_roundtrip_test PRIVATE
+    USHADER_FIXTURE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/sample.ushaderprofile"
+)
+
+add_executable(workspace_roundtrip_test
+    tests/workspace_roundtrip_test.cpp
+    src/ui/workspace.cpp
+    src/ui/golf_profile.cpp
+    src/ui/budget_presets.cpp
+    src/platform/paths.cpp
+    src/platform/utf8.cpp
+)
+
+target_link_libraries(workspace_roundtrip_test PRIVATE
+    SDL3::SDL3
+    rust_core
+)
+
+add_executable(report_encoding_test
+    tests/report_encoding_test.cpp
+    src/report/report_encoding.cpp
+)
