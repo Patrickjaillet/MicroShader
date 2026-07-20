@@ -4,4 +4,8 @@
 
 #include "ushader/golf_core.h"
 
-void render_stats_panel(const UshaderGolfStats& stats, std::size_t golfed_byte_size);
+void render_stats_panel(
+    const UshaderGolfStats& stats,
+    std::size_t golfed_byte_size,
+    const UshaderBudgetResult& budget,
+    int preset_index);

@@ -1,5 +1,53 @@
 #include "glsl_language.h"
 
+#include <cctype>
+
+TextEditor::PaletteIndex classify_glsl_token(const std::string& token)
+{
+    if (token.empty())
+    {
+        return TextEditor::PaletteIndex::Default;
+    }
+
+    char first = token[0];
+
+    if (first == '#')
+    {
+        return TextEditor::PaletteIndex::Preprocessor;
+    }
+    if (first == '"')
+    {
+        return TextEditor::PaletteIndex::String;
+    }
+    if (first == '\'')
+    {
+        return TextEditor::PaletteIndex::CharLiteral;
+    }
+    if (token.rfind("//", 0) == 0 || token.rfind("/*", 0) == 0)
+    {
+        return TextEditor::PaletteIndex::Comment;
+    }
+    if (std::isdigit(static_cast<unsigned char>(first)) ||
+        (token.size() > 1 && (first == '+' || first == '-') && std::isdigit(static_cast<unsigned char>(token[1]))))
+    {
+        return TextEditor::PaletteIndex::Number;
+    }
+    if (std::isalpha(static_cast<unsigned char>(first)) || first == '_')
+    {
+        const TextEditor::LanguageDefinition& language = glsl_language_definition();
+        if (language.mKeywords.find(token) != language.mKeywords.end())
+        {
+            return TextEditor::PaletteIndex::Keyword;
+        }
+        if (language.mIdentifiers.find(token) != language.mIdentifiers.end())
+        {
+            return TextEditor::PaletteIndex::KnownIdentifier;
+        }
+        return TextEditor::PaletteIndex::Identifier;
+    }
+    return TextEditor::PaletteIndex::Punctuation;
+}
+
 const TextEditor::LanguageDefinition& glsl_language_definition()
 {
     static bool inited = false;

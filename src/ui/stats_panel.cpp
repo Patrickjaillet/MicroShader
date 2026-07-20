@@ -1,22 +1,38 @@
 #include "stats_panel.h"
 
+#include <cstdio>
+
 #include <imgui.h>
 
+#include "budget_presets.h"
 #include "theme_tokens.h"
 
 namespace
 {
-    void render_badge(const char* label, std::size_t limit, std::size_t actual)
+    void render_budget_badge(const char* label, long long limit, std::size_t actual)
     {
-        bool fits = actual <= limit;
-        ImVec4 color = fits ? tokens::status_ok : tokens::text_disabled;
+        if (limit < 0)
+        {
+            return;
+        }
+        auto limit_u = static_cast<std::size_t>(limit);
+        bool over = actual > limit_u;
+        bool near_limit = !over && limit_u > 0 && actual * 10 >= limit_u * 9;
+        ImVec4 color = over ? tokens::status_error : (near_limit ? tokens::status_warning : tokens::status_ok);
+        const char* glyph = over ? "\xc3\x97" : "\xe2\x9c\x93";
+        char text[96];
+        std::snprintf(text, sizeof(text), "%s %s: %zu / %lld", glyph, label, actual, limit);
         ImGui::PushStyleColor(ImGuiCol_Text, color);
-        ImGui::Text("%s %s", fits ? "\xe2\x9c\x93" : "\xc2\xb7", label);
+        ImGui::TextUnformatted(text);
         ImGui::PopStyleColor();
     }
 }
 
-void render_stats_panel(const UshaderGolfStats& stats, std::size_t golfed_byte_size)
+void render_stats_panel(
+    const UshaderGolfStats& stats,
+    std::size_t golfed_byte_size,
+    const UshaderBudgetResult& budget,
+    int preset_index)
 {
     ImGui::Text("%zu -> %zu chars (%.1f%% reduction)",
         static_cast<std::size_t>(stats.input_chars), static_cast<std::size_t>(stats.output_chars), stats.reduction_pct);
@@ -47,11 +63,22 @@ void render_stats_panel(const UshaderGolfStats& stats, std::size_t golfed_byte_s
         ImGui::Columns(1);
     }
 
-    ImGui::TextUnformatted("Size budgets:");
-    ImGui::SameLine();
-    render_badge("280", 280, golfed_byte_size);
-    ImGui::SameLine();
-    render_badge("512", 512, golfed_byte_size);
-    ImGui::SameLine();
-    render_badge("1024", 1024, golfed_byte_size);
+    std::size_t preset_count = 0;
+    const BudgetPreset* presets = budget_presets(preset_count);
+    const BudgetPreset* preset =
+        (preset_index >= 0 && static_cast<std::size_t>(preset_index) < preset_count)
+            ? &presets[preset_index]
+            : nullptr;
+
+    ImGui::Text("Compressed estimate: %zu bytes (deflate, fixed Huffman)",
+        static_cast<std::size_t>(budget.deflate_bytes));
+
+    if (preset != nullptr)
+    {
+        ImGui::TextUnformatted("Budget:");
+        ImGui::SameLine();
+        render_budget_badge(preset->name, preset->raw_limit, static_cast<std::size_t>(budget.raw_bytes));
+        ImGui::SameLine();
+        render_budget_badge(preset->name, preset->deflate_limit, static_cast<std::size_t>(budget.deflate_bytes));
+    }
 }

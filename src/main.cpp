@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "platform/accessibility.h"
 #include "platform/file_dialog.h"
 #include "platform/paths.h"
 #include "platform/recorder.h"
@@ -29,6 +30,7 @@
 #include "ui/diff_view.h"
 #include "ui/document.h"
 #include "ui/equivalence_controls.h"
+#include "ui/export_wrappers.h"
 #include "ui/glsl_format.h"
 #include "ui/glsl_language.h"
 #include "ui/golf_controls.h"
@@ -161,7 +163,8 @@ int main(int argc, char* argv[])
     SDL_Window* window = SDL_CreateWindow(
         "uShader " USHADER_VERSION_STRING,
         1280, 720,
-        SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL | SDL_WINDOW_BORDERLESS);
+        SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL | SDL_WINDOW_BORDERLESS
+            | SDL_WINDOW_HIGH_PIXEL_DENSITY);
 
     if (!window)
     {
@@ -173,6 +176,8 @@ int main(int argc, char* argv[])
     TitleBarHitTestState hit_test_state{};
     hit_test_state.title_bar_height = static_cast<int>(kTitleBarHeight);
     SDL_SetWindowHitTest(window, title_bar_hit_test, &hit_test_state);
+
+    accessibility_init(window);
 
     SDL_MaximizeWindow(window);
 
@@ -206,8 +211,24 @@ int main(int argc, char* argv[])
     bool had_layout_ini = !layout_ini_path.empty() && !read_utf8_file(layout_ini_path).empty();
     io.IniFilename = layout_ini_path.empty() ? nullptr : layout_ini_path.c_str();
 
+    WorkspaceState restore_state;
+    bool restore_prompt_open = false;
+    if (workspace_session_exists() &&
+        deserialize_workspace(read_utf8_file(workspace_session_path()), restore_state))
+    {
+        restore_prompt_open = !restore_state.documents.empty();
+    }
+    float ui_font_size = restore_state.ui_font_size;
+
     load_fonts(io, 18.0f);
     apply_theme();
+
+    float dpi_scale = SDL_GetWindowDisplayScale(window);
+    if (dpi_scale <= 0.0f)
+    {
+        dpi_scale = 1.0f;
+    }
+    apply_dpi_scale(io, dpi_scale * (ui_font_size / kDefaultBaseFontSize));
 
     ImGui_ImplSDL3_InitForOpenGL(window, gl_context);
     ImGui_ImplOpenGL3_Init("#version 330 core");
@@ -300,6 +321,8 @@ int main(int argc, char* argv[])
         ImGui::PopFont();
         ImVec2 label_pos(icon_pos.x + icon_size.x + gap, start.y + (button_size.y - label_size.y) * 0.5f);
         draw_list->AddText(label_pos, text_color_u32, label);
+
+        accessibility_register(label, AccessibleRole::Button, start.x, start.y, button_size.x, button_size.y, true);
 
         return pressed;
     };
@@ -563,15 +586,6 @@ int main(int argc, char* argv[])
     run_full_golf(*documents[0]);
     last_synced_tab_id = documents[0]->tab_id;
 
-    WorkspaceState restore_state;
-    bool restore_prompt_open = false;
-    if (workspace_session_exists() &&
-        deserialize_workspace(read_utf8_file(workspace_session_path()), restore_state) &&
-        !restore_state.documents.empty())
-    {
-        restore_prompt_open = true;
-    }
-
     Uint64 start_ticks = SDL_GetTicks();
     Uint64 last_ticks = start_ticks;
     int frame = 0;
@@ -612,11 +626,21 @@ int main(int argc, char* argv[])
             {
                 dropped_file_paths.push_back(event.drop.data);
             }
+            else if (event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED)
+            {
+                float new_dpi_scale = SDL_GetWindowDisplayScale(window);
+                if (new_dpi_scale > 0.0f)
+                {
+                    dpi_scale = new_dpi_scale;
+                    apply_dpi_scale(io, dpi_scale * (ui_font_size / kDefaultBaseFontSize));
+                }
+            }
         }
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
+        accessibility_begin_frame();
 
         bool window_minimized = (SDL_GetWindowFlags(window) & SDL_WINDOW_MINIMIZED) != 0;
 
@@ -699,6 +723,11 @@ int main(int argc, char* argv[])
             static_cast<int>(button_width), static_cast<int>(button_height)};
 
         ImGui::PopStyleVar();
+
+        bool window_is_maximized = (SDL_GetWindowFlags(window) & SDL_WINDOW_MAXIMIZED) != 0;
+        accessibility_register("Minimize", AccessibleRole::Button, minimize_screen_pos.x, minimize_screen_pos.y, button_width, button_height, true);
+        accessibility_register(window_is_maximized ? "Restore" : "Maximize", AccessibleRole::Button, maximize_screen_pos.x, maximize_screen_pos.y, button_width, button_height, true);
+        accessibility_register("Close", AccessibleRole::Button, close_screen_pos.x, close_screen_pos.y, button_width, button_height, true);
 
         if (minimize_clicked)
         {
@@ -854,7 +883,12 @@ int main(int argc, char* argv[])
             last_synced_tab_id = active.tab_id;
         }
 
-        render_about_popup(show_about, logo_texture, keybindings);
+        float ui_font_size_before = ui_font_size;
+        render_about_popup(show_about, logo_texture, keybindings, ui_font_size);
+        if (ui_font_size != ui_font_size_before)
+        {
+            apply_dpi_scale(io, dpi_scale * (ui_font_size / kDefaultBaseFontSize));
+        }
 
         if (chord_pressed(io, keybindings.command_palette))
         {
@@ -911,6 +945,9 @@ int main(int argc, char* argv[])
                 }
             }},
             {"Copy golfed shader to clipboard", [&]() { SDL_SetClipboardText(active.golfed_text.c_str()); }},
+            {"Copy as Shadertoy mainImage", [&]() { SDL_SetClipboardText(wrap_as_shadertoy_main_image(active.golfed_text).c_str()); }},
+            {"Copy as Bonzomatic-ready source", [&]() { SDL_SetClipboardText(wrap_as_bonzomatic_source(active.golfed_text).c_str()); }},
+            {"Copy as bare void main()", [&]() { SDL_SetClipboardText(wrap_as_bare_main(active.golfed_text).c_str()); }},
             {"Toggle Minimap", [&]() { minimap_settings.enabled = !minimap_settings.enabled; }},
             {"Show Diff panel", [&]() { ImGui::SetWindowFocus(kDiffWindowTitle); }},
             {"Export report...", [&]() { menu_export_report = true; }},
@@ -929,9 +966,9 @@ int main(int argc, char* argv[])
         if (active.equivalence_result.valid)
         {
             bool equivalence_passed = active.equivalence_result.samples_failed == 0;
-            ImVec4 equivalence_color = equivalence_passed ? tokens::status_ok : tokens::status_error;
+            StatusKind equivalence_kind = equivalence_passed ? StatusKind::Ok : StatusKind::Error;
             ImGui::SameLine(0.0f, 16.0f);
-            render_status_dot(equivalence_passed ? "Equivalent" : "Differs", equivalence_color);
+            render_status_dot(equivalence_passed ? "Equivalent" : "Differs", equivalence_kind);
         }
         ImGui::SameLine();
         if (icon_button(ICON_FOLDER_OPEN, "Open"))
@@ -989,6 +1026,21 @@ int main(int argc, char* argv[])
             {
                 write_utf8_file(*path, active.golfed_text);
             }
+        }
+        ImGui::SameLine();
+        if (icon_button(ICON_COPY, "Copy as Shadertoy"))
+        {
+            SDL_SetClipboardText(wrap_as_shadertoy_main_image(active.golfed_text).c_str());
+        }
+        ImGui::SameLine();
+        if (icon_button(ICON_COPY, "Copy as Bonzomatic"))
+        {
+            SDL_SetClipboardText(wrap_as_bonzomatic_source(active.golfed_text).c_str());
+        }
+        ImGui::SameLine();
+        if (icon_button(ICON_COPY, "Copy as bare main()"))
+        {
+            SDL_SetClipboardText(wrap_as_bare_main(active.golfed_text).c_str());
         }
         render_stats_panel(active.golf_stats, active.golfed_text.size(), active.budget_result, active.budget_preset_index);
         ImGui::Separator();
@@ -1149,8 +1201,8 @@ int main(int argc, char* argv[])
         }
 
         {
-            ImVec4 dot_color = active.compile_error.empty() ? tokens::status_ok : tokens::status_error;
-            render_status_dot(active.compile_error.empty() ? "Compiled" : "Shader error", dot_color);
+            StatusKind compile_kind = active.compile_error.empty() ? StatusKind::Ok : StatusKind::Error;
+            render_status_dot(active.compile_error.empty() ? "Compiled" : "Shader error", compile_kind);
         }
 
         if (!active.compile_error.empty())
@@ -1484,6 +1536,7 @@ int main(int argc, char* argv[])
 
         }
 
+        accessibility_end_frame();
         ImGui::Render();
 
         glViewport(0, 0, window_pixel_w, window_pixel_h);
@@ -1504,6 +1557,7 @@ int main(int argc, char* argv[])
     {
         WorkspaceState session_state;
         session_state.layout_ini = workspace_layout_name();
+        session_state.ui_font_size = ui_font_size;
         int serialized_active = 0;
         int serialized_count = 0;
         for (int i = 0; i < static_cast<int>(documents.size()); ++i)
@@ -1539,6 +1593,7 @@ int main(int argc, char* argv[])
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
+    accessibility_shutdown();
     SDL_GL_DestroyContext(gl_context);
     SDL_DestroyWindow(window);
     SDL_Quit();

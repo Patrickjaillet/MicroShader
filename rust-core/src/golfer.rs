@@ -28,6 +28,46 @@ pub struct GolfResult {
     pub stats: GolfStats,
 }
 
+#[derive(Debug, Clone)]
+pub struct PassTraceStep {
+    pub pass_name: &'static str,
+    pub before: String,
+    pub after: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct GolferTrace {
+    pub steps: Vec<PassTraceStep>,
+}
+
+impl GolferTrace {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+fn trace_before_snapshot(trace: &Option<&mut GolferTrace>, items: &[Item]) -> Option<String> {
+    trace.as_ref().map(|_| layout(items))
+}
+
+fn trace_push_step(
+    trace: &mut Option<&mut GolferTrace>,
+    pass_name: &'static str,
+    before: Option<String>,
+    items: &[Item],
+    count: usize,
+) {
+    if let (Some(trace), Some(before)) = (trace.as_deref_mut(), before) {
+        trace.steps.push(PassTraceStep {
+            pass_name,
+            before,
+            after: layout(items),
+            count,
+        });
+    }
+}
+
 fn shorten_number(raw: &str) -> String {
     let mut mantissa = raw;
     let mut suffix = String::new();
@@ -457,6 +497,25 @@ pub fn golf_with_protected_names(
     aggressive: AggressiveOptions,
     protected_names: &[String],
 ) -> GolfResult {
+    golf_with_protected_names_impl(source, aggressive, protected_names, &mut None)
+}
+
+pub fn golf_with_protected_names_traced(
+    source: &str,
+    aggressive: AggressiveOptions,
+    protected_names: &[String],
+) -> (GolfResult, GolferTrace) {
+    let mut trace = GolferTrace::new();
+    let result = golf_with_protected_names_impl(source, aggressive, protected_names, &mut Some(&mut trace));
+    (result, trace)
+}
+
+fn golf_with_protected_names_impl(
+    source: &str,
+    aggressive: AggressiveOptions,
+    protected_names: &[String],
+    trace: &mut Option<&mut GolferTrace>,
+) -> GolfResult {
     let input_chars = source.chars().count();
     let spaced = tokenize_spaced(source);
     let tokens: Vec<Tok> = spaced.iter().map(|(t, _)| t.clone()).collect();
@@ -553,55 +612,103 @@ pub fn golf_with_protected_names(
     for _ in 0..MAX_FIXPOINT_ITERATIONS {
         let before = items.clone();
         if aggressive.eliminate_dead_locals {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.dead_locals_removed;
             items = eliminate_dead_locals(items, &mut aggressive_stats);
+            trace_push_step(trace, "eliminate_dead_locals", snapshot, &items, aggressive_stats.dead_locals_removed - count_before);
         }
         if aggressive.eliminate_dead_stores {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.dead_stores_removed;
             items = eliminate_dead_stores(items, &mut aggressive_stats);
+            trace_push_step(trace, "eliminate_dead_stores", snapshot, &items, aggressive_stats.dead_stores_removed - count_before);
         }
         if aggressive.eliminate_dead_functions {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.dead_functions_removed;
             items = eliminate_dead_functions(items, &mut aggressive_stats);
+            trace_push_step(trace, "eliminate_dead_functions", snapshot, &items, aggressive_stats.dead_functions_removed - count_before);
         }
         if aggressive.inline_single_call_functions {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.functions_inlined;
             items = crate::inline::inline_single_call_functions(items, &mut aggressive_stats);
+            trace_push_step(trace, "inline_single_call_functions", snapshot, &items, aggressive_stats.functions_inlined - count_before);
         }
         if aggressive.fold_constants {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.constants_folded;
             items = fold_constants(items, &mut aggressive_stats);
             items = fold_additive_constants(items, &mut aggressive_stats);
             items = fold_float_constants(items, &mut aggressive_stats);
             items = fold_additive_float_constants(items, &mut aggressive_stats);
+            trace_push_step(trace, "fold_constants", snapshot, &items, aggressive_stats.constants_folded - count_before);
         }
         if aggressive.reduce_constant_vectors {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.constant_vectors_reduced;
             items = reduce_constant_vectors(items, &mut aggressive_stats);
+            trace_push_step(trace, "reduce_constant_vectors", snapshot, &items, aggressive_stats.constant_vectors_reduced - count_before);
         }
         if aggressive.simplify_algebraic_identities {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.algebraic_identities_simplified;
             items = simplify_algebraic_identities(items, &mut aggressive_stats);
+            trace_push_step(trace, "simplify_algebraic_identities", snapshot, &items, aggressive_stats.algebraic_identities_simplified - count_before);
         }
         if aggressive.eliminate_common_subexpressions {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.common_subexpressions_eliminated;
             items = eliminate_common_subexpressions(items, &mut aggressive_stats);
+            trace_push_step(trace, "eliminate_common_subexpressions", snapshot, &items, aggressive_stats.common_subexpressions_eliminated - count_before);
         }
         if aggressive.compound_assignments {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.compound_assignments;
             items = compound_assignments(items, &mut aggressive_stats);
+            trace_push_step(trace, "compound_assignments", snapshot, &items, aggressive_stats.compound_assignments - count_before);
         }
         if aggressive.increment_decrement {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.increments_decrements;
             items = increment_decrement(items, &mut aggressive_stats);
+            trace_push_step(trace, "increment_decrement", snapshot, &items, aggressive_stats.increments_decrements - count_before);
         }
         if aggressive.ternary_from_if_else {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.ternaries_from_if_else;
             items = ternary_from_if_else(items, &mut aggressive_stats);
+            trace_push_step(trace, "ternary_from_if_else", snapshot, &items, aggressive_stats.ternaries_from_if_else - count_before);
         }
         if aggressive.merge_declarations {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.declarations_merged;
             items = merge_declarations(items, &mut aggressive_stats);
+            trace_push_step(trace, "merge_declarations", snapshot, &items, aggressive_stats.declarations_merged - count_before);
         }
         if aggressive.strip_redundant_braces {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.braces_removed;
             items = strip_redundant_braces(items, &mut aggressive_stats);
+            trace_push_step(trace, "strip_redundant_braces", snapshot, &items, aggressive_stats.braces_removed - count_before);
         }
         if aggressive.strip_redundant_parens {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.redundant_parens_removed;
             items = strip_redundant_parens(items, &mut aggressive_stats);
+            trace_push_step(trace, "strip_redundant_parens", snapshot, &items, aggressive_stats.redundant_parens_removed - count_before);
         }
         if aggressive.strip_duplicate_precision {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.duplicate_precision_removed;
             items = strip_duplicate_precision(items, &mut aggressive_stats);
+            trace_push_step(trace, "strip_duplicate_precision", snapshot, &items, aggressive_stats.duplicate_precision_removed - count_before);
         }
         if aggressive.strip_trailing_void_return {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.trailing_void_returns_removed;
             items = strip_trailing_void_return(items, &mut aggressive_stats);
+            trace_push_step(trace, "strip_trailing_void_return", snapshot, &items, aggressive_stats.trailing_void_returns_removed - count_before);
         }
         if items == before {
             break;
@@ -705,7 +812,125 @@ fn layout(items: &[Item]) -> String {
 mod tests {
     use super::golf;
     use super::golf_with_protected_names;
+    use super::golf_with_protected_names_traced;
     use super::AggressiveOptions;
+
+    #[test]
+    fn trace_pass_order_and_counts_match_fixture_regression() {
+        // Regression guard for the fixpoint pass loop's fixed order: if a
+        // future edit reorders, adds, or removes a pass inside the loop in
+        // golf_with_protected_names_impl, this fixture's per-pass sequence
+        // will drift and this test will fail, even though every individual
+        // pass's own unit tests still pass in isolation.
+        let source = include_str!("../../fixtures/golf_trace.glsl");
+        let (result, trace) = golf_with_protected_names_traced(source, AggressiveOptions::all(), &[]);
+
+        assert_eq!(
+            result.code,
+            "void mainImage(out vec4 b,in vec2 d){float c=2.,a=c;if(a>0.)--a;else++a;b=vec4(a);}"
+        );
+
+        // Exactly two fixpoint iterations: the first with real work spread
+        // across several passes (dead-local removal, constant folding,
+        // compound-assignment/increment-decrement rewriting, declaration
+        // merging, brace stripping), the second a clean, all-zero pass
+        // confirming the fixpoint. Sixteen passes per iteration, in the
+        // exact order golf_with_protected_names_impl invokes them.
+        let expected: [(&str, usize); 32] = [
+            ("eliminate_dead_locals", 1),
+            ("eliminate_dead_stores", 0),
+            ("eliminate_dead_functions", 0),
+            ("inline_single_call_functions", 0),
+            ("fold_constants", 1),
+            ("reduce_constant_vectors", 0),
+            ("simplify_algebraic_identities", 0),
+            ("eliminate_common_subexpressions", 0),
+            ("compound_assignments", 2),
+            ("increment_decrement", 2),
+            ("ternary_from_if_else", 0),
+            ("merge_declarations", 1),
+            ("strip_redundant_braces", 2),
+            ("strip_redundant_parens", 0),
+            ("strip_duplicate_precision", 0),
+            ("strip_trailing_void_return", 0),
+            ("eliminate_dead_locals", 0),
+            ("eliminate_dead_stores", 0),
+            ("eliminate_dead_functions", 0),
+            ("inline_single_call_functions", 0),
+            ("fold_constants", 0),
+            ("reduce_constant_vectors", 0),
+            ("simplify_algebraic_identities", 0),
+            ("eliminate_common_subexpressions", 0),
+            ("compound_assignments", 0),
+            ("increment_decrement", 0),
+            ("ternary_from_if_else", 0),
+            ("merge_declarations", 0),
+            ("strip_redundant_braces", 0),
+            ("strip_redundant_parens", 0),
+            ("strip_duplicate_precision", 0),
+            ("strip_trailing_void_return", 0),
+        ];
+
+        assert_eq!(trace.steps.len(), expected.len());
+        let actual: Vec<(&str, usize)> = trace.steps.iter().map(|s| (s.pass_name, s.count)).collect();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn trace_is_empty_when_every_pass_is_disabled() {
+        let (result, trace) = golf_with_protected_names_traced(
+            "void mainImage(out vec4 fragColor,in vec2 fragCoord){float unused=1.0;fragColor=vec4(2.0);}",
+            AggressiveOptions::none(),
+            &[],
+        );
+        assert!(trace.steps.is_empty());
+        assert_eq!(result.stats.aggressive.dead_locals_removed, 0);
+    }
+
+    #[test]
+    fn trace_matches_the_untraced_entry_point_output_and_stats() {
+        let source = "void mainImage(out vec4 fragColor,in vec2 fragCoord){float unused=1.0;fragColor=vec4(2.0);}";
+        let mut opts = AggressiveOptions::none();
+        opts.eliminate_dead_locals = true;
+        let untraced = golf_with_protected_names(source, opts, &[]);
+        let (traced, _) = golf_with_protected_names_traced(source, opts, &[]);
+        assert_eq!(untraced.code, traced.code);
+        assert_eq!(untraced.stats.aggressive.dead_locals_removed, traced.stats.aggressive.dead_locals_removed);
+    }
+
+    #[test]
+    fn trace_records_one_step_per_fixpoint_iteration_for_the_one_enabled_pass() {
+        let mut opts = AggressiveOptions::none();
+        opts.eliminate_dead_locals = true;
+        let (result, trace) = golf_with_protected_names_traced(
+            "void mainImage(out vec4 fragColor,in vec2 fragCoord){float unused=1.0;fragColor=vec4(2.0);}",
+            opts,
+            &[],
+        );
+        assert_eq!(result.stats.aggressive.dead_locals_removed, 1);
+        assert!(trace.steps.iter().all(|s| s.pass_name == "eliminate_dead_locals"));
+        assert_eq!(trace.steps.iter().map(|s| s.count).sum::<usize>(), 1);
+        let changed_steps: Vec<_> = trace.steps.iter().filter(|s| s.count > 0).collect();
+        assert_eq!(changed_steps.len(), 1);
+        assert_ne!(changed_steps[0].before, changed_steps[0].after);
+        let unchanged_steps: Vec<_> = trace.steps.iter().filter(|s| s.count == 0).collect();
+        for step in unchanged_steps {
+            assert_eq!(step.before, step.after);
+        }
+    }
+
+    #[test]
+    fn trace_never_records_a_disabled_pass() {
+        let mut opts = AggressiveOptions::none();
+        opts.eliminate_dead_locals = true;
+        let (_, trace) = golf_with_protected_names_traced(
+            "void mainImage(out vec4 fragColor,in vec2 fragCoord){float unused=1.0;fragColor=vec4(2.0);}",
+            opts,
+            &[],
+        );
+        assert!(!trace.steps.iter().any(|s| s.pass_name == "fold_constants"));
+        assert!(!trace.steps.iter().any(|s| s.pass_name == "eliminate_dead_stores"));
+    }
 
     #[test]
     fn safe_mode_unchanged_by_default() {

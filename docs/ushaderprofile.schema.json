@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://patrickjaillet.github.io/sandefjord-software/ushaderprofile.schema.json",
+  "title": "uShader golf profile",
+  "description": "A .ushaderprofile file: a saved set of pass toggles, a protected-names list, and a budget preset, as written and read by uShader's ui/golf_profile.cpp. See docs/ushaderprofile-schema.md in the uShader repository for the full human-readable specification, including field-by-field semantics and the schema version history.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "description": "The .ushaderprofile format version this file was written against. Introduced in schema version 1 (Phase 21); files written before Phase 21 omit this field entirely and MUST be read as schema_version 1. Readers should treat a missing field as 1, not as an error.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 1
+    },
+    "aggressive": {
+      "description": "Master toggle for the 16 aggressive passes below. When false, uShader ignores every other pass toggle in this file and runs only the always-on baseline (identifier renaming, numeric literal shortening, whitespace stripping).",
+      "type": "boolean"
+    },
+    "eliminate_dead_locals": { "type": "boolean" },
+    "eliminate_dead_stores": { "type": "boolean" },
+    "fold_constants": { "type": "boolean" },
+    "reduce_constant_vectors": { "type": "boolean" },
+    "strip_trailing_void_return": { "type": "boolean" },
+    "compound_assignments": { "type": "boolean" },
+    "increment_decrement": { "type": "boolean" },
+    "ternary_from_if_else": { "type": "boolean" },
+    "merge_declarations": { "type": "boolean" },
+    "strip_redundant_braces": { "type": "boolean" },
+    "strip_redundant_parens": { "type": "boolean" },
+    "strip_duplicate_precision": { "type": "boolean" },
+    "eliminate_dead_functions": { "type": "boolean" },
+    "inline_single_call_functions": { "type": "boolean" },
+    "simplify_algebraic_identities": { "type": "boolean" },
+    "eliminate_common_subexpressions": { "type": "boolean" },
+    "protected_names": {
+      "description": "Comma-separated list of identifiers the golfing engine must never rename. Entries are trimmed of surrounding whitespace and empty entries (e.g. from a trailing comma) are ignored. May be an empty string.",
+      "type": "string"
+    },
+    "budget_preset": {
+      "description": "Name of the last-selected size-budget preset. Must be one of the built-in preset names uShader ships (src/ui/budget_presets.cpp); an unrecognized or missing name falls back to no budget selected (\"Custom\") rather than failing to load the file.",
+      "type": "string",
+      "enum": [
+        "Shadertoy",
+        "X/Twitter shader",
+        "JS13K-style 13KB",
+        "4KB intro",
+        "8KB intro",
+        "64KB intro"
+      ]
+    }
+  },
+  "required": [
+    "aggressive",
+    "eliminate_dead_locals",
+    "eliminate_dead_stores",
+    "fold_constants",
+    "reduce_constant_vectors",
+    "strip_trailing_void_return",
+    "compound_assignments",
+    "increment_decrement",
+    "ternary_from_if_else",
+    "merge_declarations",
+    "strip_redundant_braces",
+    "strip_redundant_parens",
+    "strip_duplicate_precision",
+    "eliminate_dead_functions",
+    "inline_single_call_functions",
+    "simplify_algebraic_identities",
+    "eliminate_common_subexpressions",
+    "protected_names",
+    "budget_preset"
+  ],
+  "additionalProperties": true
+}

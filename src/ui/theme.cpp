@@ -2,12 +2,19 @@
 
 #include <imgui.h>
 
+#include "../platform/accessibility.h"
 #include "../platform/paths.h"
 #include "icons.h"
 #include "theme_tokens.h"
 
 ImFont* g_icon_font = nullptr;
 ImFont* g_mono_font = nullptr;
+
+namespace
+{
+    ImGuiStyle g_base_style;
+    bool g_base_style_valid = false;
+}
 
 void apply_theme()
 {
@@ -85,6 +92,23 @@ void apply_theme()
     colors[ImGuiCol_Text] = text_primary;
     colors[ImGuiCol_TextDisabled] = text_disabled;
     colors[ImGuiCol_NavCursor] = accent;
+
+    g_base_style = style;
+    g_base_style_valid = true;
+}
+
+void apply_dpi_scale(ImGuiIO& io, float scale)
+{
+    if (!g_base_style_valid || scale <= 0.0f)
+    {
+        return;
+    }
+
+    ImGuiStyle& style = ImGui::GetStyle();
+    style = g_base_style;
+    style.ScaleAllSizes(scale);
+
+    io.FontGlobalScale = scale;
 }
 
 void load_fonts(ImGuiIO& io, float base_size)
@@ -169,5 +193,62 @@ bool themed_checkbox(const char* label, bool* value)
     ImVec2 label_pos(box_max.x + style.ItemInnerSpacing.x, start.y + (total_size.y - label_size.y) * 0.5f);
     draw_list->AddText(label_pos, ImGui::GetColorU32(ImGuiCol_Text), label);
 
+    accessibility_register_toggle(label, AccessibleRole::CheckBox, start.x, start.y, total_size.x, total_size.y, true, *value);
+
     return pressed;
+}
+
+bool g_colorblind_safe_indicators = false;
+
+namespace
+{
+    ImVec4 status_kind_color(StatusKind kind)
+    {
+        switch (kind)
+        {
+            case StatusKind::Warning:
+                return tokens::status_warning;
+            case StatusKind::Error:
+                return tokens::status_error;
+            case StatusKind::Ok:
+            default:
+                return tokens::status_ok;
+        }
+    }
+}
+
+void render_status_dot(const char* label, StatusKind kind)
+{
+    ImVec4 color = status_kind_color(kind);
+    ImU32 color_u32 = ImGui::GetColorU32(color);
+
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    ImVec2 dot_pos = ImGui::GetCursorScreenPos();
+    float dot_radius = 5.0f;
+    float row_height = ImGui::GetFontSize();
+    ImVec2 center(dot_pos.x + dot_radius, dot_pos.y + row_height * 0.5f);
+
+    if (g_colorblind_safe_indicators && kind == StatusKind::Warning)
+    {
+        ImVec2 p1(center.x, center.y - dot_radius);
+        ImVec2 p2(center.x - dot_radius, center.y + dot_radius * 0.75f);
+        ImVec2 p3(center.x + dot_radius, center.y + dot_radius * 0.75f);
+        draw_list->AddTriangleFilled(p1, p2, p3, color_u32);
+    }
+    else if (g_colorblind_safe_indicators && kind == StatusKind::Error)
+    {
+        float half = dot_radius * 0.85f;
+        draw_list->AddRectFilled(
+            ImVec2(center.x - half, center.y - half),
+            ImVec2(center.x + half, center.y + half),
+            color_u32);
+    }
+    else
+    {
+        draw_list->AddCircleFilled(center, dot_radius, color_u32);
+    }
+
+    ImGui::Dummy(ImVec2(dot_radius * 2.0f + 6.0f, row_height));
+    ImGui::SameLine(0.0f, 0.0f);
+    ImGui::TextColored(color, "%s", label);
 }

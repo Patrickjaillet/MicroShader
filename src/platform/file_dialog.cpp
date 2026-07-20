@@ -23,9 +23,13 @@ namespace
     }
 }
 
-std::optional<std::string> show_open_file_dialog(SDL_Window* window, const wchar_t* filter, const wchar_t* default_ext)
+std::optional<std::string> show_open_file_dialog(SDL_Window* window, const wchar_t* filter, const wchar_t* default_ext, const wchar_t* default_path)
 {
     wchar_t path_buffer[MAX_PATH] = L"";
+    if (default_path != nullptr)
+    {
+        wcsncpy_s(path_buffer, default_path, MAX_PATH - 1);
+    }
 
     OPENFILENAMEW ofn{};
     ofn.lStructSize = sizeof(ofn);

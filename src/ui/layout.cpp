@@ -24,22 +24,28 @@ void build_dock_layout(ImGuiID dockspace_id, bool narrow)
     {
         ImGui::DockBuilderDockWindow(kSourceWindowTitle, dockspace_id);
         ImGui::DockBuilderDockWindow(kGolfedWindowTitle, dockspace_id);
+        ImGui::DockBuilderDockWindow(kTraceWindowTitle, dockspace_id);
+        ImGui::DockBuilderDockWindow(kDiffWindowTitle, dockspace_id);
         ImGui::DockBuilderDockWindow(kViewportWindowTitle, dockspace_id);
         disable_window_menu_button(dockspace_id);
     }
     else
     {
         ImGuiID center = dockspace_id;
-        ImGuiID id_source = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.33f, nullptr, &center);
-        ImGuiID id_golfed = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.5f, nullptr, &center);
+        ImGuiID id_source = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.25f, nullptr, &center);
+        ImGuiID id_golfed = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.33f, nullptr, &center);
+        ImGuiID id_trace = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.5f, nullptr, &center);
         ImGuiID id_viewport = center;
 
         ImGui::DockBuilderDockWindow(kSourceWindowTitle, id_source);
         ImGui::DockBuilderDockWindow(kGolfedWindowTitle, id_golfed);
+        ImGui::DockBuilderDockWindow(kTraceWindowTitle, id_trace);
+        ImGui::DockBuilderDockWindow(kDiffWindowTitle, id_trace);
         ImGui::DockBuilderDockWindow(kViewportWindowTitle, id_viewport);
 
         disable_window_menu_button(id_source);
         disable_window_menu_button(id_golfed);
+        disable_window_menu_button(id_trace);
         disable_window_menu_button(id_viewport);
     }
 

@@ -155,6 +155,7 @@ add_executable(ushader
     src/render/texture.cpp
     src/platform/paths.cpp
     src/platform/file_dialog.cpp
+    src/platform/accessibility.cpp
     src/platform/screenshot.cpp
     src/platform/stb_impl.cpp
     src/platform/utf8.cpp
@@ -167,6 +168,8 @@ add_executable(ushader
     src/ui/glsl_format.cpp
     src/ui/golf_controls.cpp
     src/ui/golf_profile.cpp
+    src/ui/exclude_list_import.cpp
+    src/ui/export_wrappers.cpp
     src/ui/golf_trace.cpp
     src/ui/budget_presets.cpp
     src/ui/stats_panel.cpp
@@ -194,6 +197,9 @@ target_link_libraries(ushader PRIVATE
     imguicolortextedit
     opengl32
     comdlg32
+    uiautomationcore
+    ole32
+    oleaut32
     rust_core
 )
 
@@ -259,4 +265,34 @@ target_link_libraries(workspace_roundtrip_test PRIVATE
 add_executable(report_encoding_test
     tests/report_encoding_test.cpp
     src/report/report_encoding.cpp
+)
+
+add_executable(export_wrappers_test
+    tests/export_wrappers_test.cpp
+    src/ui/export_wrappers.cpp
+)
+
+add_executable(exclude_list_import_test
+    tests/exclude_list_import_test.cpp
+    src/ui/exclude_list_import.cpp
+    src/platform/paths.cpp
+    src/platform/file_dialog.cpp
+    src/platform/utf8.cpp
+)
+
+target_link_libraries(exclude_list_import_test PRIVATE
+    SDL3::SDL3
+    comdlg32
+)
+
+add_executable(ushaderprofile_schema_test
+    tests/ushaderprofile_schema_test.cpp
+    src/ui/golf_profile.cpp
+    src/ui/budget_presets.cpp
+    src/platform/paths.cpp
+    src/platform/utf8.cpp
+)
+
+target_link_libraries(ushaderprofile_schema_test PRIVATE
+    SDL3::SDL3
 )

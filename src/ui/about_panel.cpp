@@ -4,6 +4,8 @@
 #include <imgui.h>
 
 #include "../render/texture.h"
+#include "keybindings.h"
+#include "theme.h"
 #include "theme_tokens.h"
 #include "ushader/version.h"
 
@@ -30,7 +32,7 @@ namespace
     }
 }
 
-void render_about_popup(bool& show_about, const Texture& logo)
+void render_about_popup(bool& show_about, const Texture& logo, Keybindings& bindings, float& ui_font_size)
 {
     if (show_about)
     {
@@ -49,30 +51,85 @@ void render_about_popup(bool& show_about, const Texture& logo)
     {
         float card_width = 380.0f;
 
-        if (logo.id != 0)
+        if (ImGui::BeginTabBar("##about_tabs"))
         {
-            float display_width = card_width;
-            float display_height = display_width * (static_cast<float>(logo.height) / static_cast<float>(logo.width));
-            ImGui::Image(static_cast<ImTextureID>(logo.id), ImVec2(display_width, display_height));
+            if (ImGui::BeginTabItem("About"))
+            {
+                if (logo.id != 0)
+                {
+                    float display_width = card_width;
+                    float display_height = display_width * (static_cast<float>(logo.height) / static_cast<float>(logo.width));
+                    ImGui::Image(static_cast<ImTextureID>(logo.id), ImVec2(display_width, display_height));
+                }
+
+                ImGui::Spacing();
+                ImGui::TextColored(tokens::text_primary, "uShader %s", USHADER_VERSION_STRING);
+                hairline();
+
+                ImGui::TextColored(tokens::text_secondary, "Copyright (c) 2026 SANDEFJORD DEVELOPMENT (Patrick JAILLET)");
+                ImGui::TextColored(tokens::text_secondary, "All rights reserved");
+                ImGui::Spacing();
+
+                link_text("contact.shaderstudio@gmail.com", "mailto:contact.shaderstudio@gmail.com");
+                link_text("https://github.com/Patrickjaillet", "https://github.com/Patrickjaillet");
+                link_text("https://github.com/Patrickjaillet/MicroShader", "https://github.com/Patrickjaillet/MicroShader");
+
+                ImGui::Spacing();
+                hairline();
+                ImGui::TextColored(tokens::text_secondary, "MIT License");
+                ImGui::TextColored(tokens::text_secondary, "Includes FFmpeg (GPL) for MP4/WebM recording");
+                ImGui::TextColored(tokens::text_secondary, "see THIRD_PARTY_NOTICES.md");
+                ImGui::EndTabItem();
+            }
+
+            if (ImGui::BeginTabItem("Appearance"))
+            {
+                ImGui::Dummy(ImVec2(card_width, 0.0f));
+                ImGui::Spacing();
+
+                ImGui::TextColored(tokens::text_secondary, "Base UI font size");
+                ImGui::SetNextItemWidth(card_width);
+                ImGui::SliderFloat(
+                    "##ui_font_size", &ui_font_size, kMinBaseFontSize, kMaxBaseFontSize, "%.0f pt");
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip(
+                        "Scales panel text, paddings, and line heights together.\n"
+                        "Separate from the app's fixed layout metrics and from\n"
+                        "per-monitor DPI, and remembered across restarts.");
+                }
+
+                ImGui::Spacing();
+                if (ImGui::Button("Reset to default", ImVec2(card_width, 0.0f)))
+                {
+                    ui_font_size = kDefaultBaseFontSize;
+                }
+
+                ImGui::Spacing();
+                hairline();
+                ImGui::Spacing();
+
+                themed_checkbox("Colorblind-safe status indicators", &g_colorblind_safe_indicators);
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip(
+                        "Draws Ok/Warning/Error status dots (equivalence,\n"
+                        "compile status) as a circle/triangle/square instead\n"
+                        "of three same-shaped colored dots. Off by default.");
+                }
+                ImGui::EndTabItem();
+            }
+
+            if (ImGui::BeginTabItem("Keyboard Shortcuts"))
+            {
+                ImGui::Dummy(ImVec2(card_width, 0.0f));
+                ImGui::Spacing();
+                render_keybindings_panel(bindings);
+                ImGui::EndTabItem();
+            }
+
+            ImGui::EndTabBar();
         }
-
-        ImGui::Spacing();
-        ImGui::TextColored(tokens::text_primary, "uShader %s", USHADER_VERSION_STRING);
-        hairline();
-
-        ImGui::TextColored(tokens::text_secondary, "Copyright (c) 2026 SANDEFJORD DEVELOPMENT (Patrick JAILLET)");
-        ImGui::TextColored(tokens::text_secondary, "All rights reserved");
-        ImGui::Spacing();
-
-        link_text("contact.shaderstudio@gmail.com", "mailto:contact.shaderstudio@gmail.com");
-        link_text("https://github.com/Patrickjaillet", "https://github.com/Patrickjaillet");
-        link_text("https://github.com/Patrickjaillet/MicroShader", "https://github.com/Patrickjaillet/MicroShader");
-
-        ImGui::Spacing();
-        hairline();
-        ImGui::TextColored(tokens::text_secondary, "MIT License");
-        ImGui::TextColored(tokens::text_secondary, "Includes FFmpeg (GPL) for MP4/WebM recording");
-        ImGui::TextColored(tokens::text_secondary, "see THIRD_PARTY_NOTICES.md");
 
         ImGui::Spacing();
         if (ImGui::Button("Close", ImVec2(card_width, 0.0f)))

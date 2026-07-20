@@ -4,6 +4,8 @@
 
 #include "ushader/golf_core.h"
 
+struct SDL_Window;
+
 struct GolfPassToggles
 {
     bool aggressive = true;
@@ -26,4 +28,6 @@ struct GolfPassToggles
 };
 
 UshaderGolfOptions to_golf_options(const GolfPassToggles& toggles);
-void render_golf_controls(GolfPassToggles& toggles, std::string& protected_names);
+void save_golf_profile_action(const GolfPassToggles& toggles, const std::string& protected_names, int budget_preset_index, std::string& last_profile_path, SDL_Window* window);
+void load_golf_profile_action(GolfPassToggles& toggles, std::string& protected_names, int& budget_preset_index, std::string& last_profile_path, SDL_Window* window);
+void render_golf_controls(GolfPassToggles& toggles, std::string& protected_names, int& budget_preset_index, std::string& last_profile_path, SDL_Window* window);

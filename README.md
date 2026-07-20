@@ -9,7 +9,7 @@ golf it, and immediately verify it renders identically in the live
 viewport. The UI is a dark, Adobe Premiere Pro–style editing
 workspace with a custom borderless window frame.
 
-![uShader screenshot: Source, Golfed, and Viewport panels](docs/screenshot.png)
+![uShader screenshot: Source, Golfed, Viewport, Trace, and Diff panels](docs/screenshot.png)
 
 ## Features
 
@@ -35,12 +35,23 @@ workspace with a custom borderless window frame.
 - **Import/export**: open and save `.glsl` files, copy the golfed
   output to the clipboard, export in Shadertoy format, and capture
   the viewport to a PNG screenshot.
+- **Offline interop with other golf/shader tools**: an "Import exclude
+  list..." button next to the protected-names field reads a Shader
+  Minifier–style exclude-name list (plain text, one identifier per
+  line) and merges it into the field without retyping or duplicating
+  existing entries. The Golfed panel and command palette also offer
+  one-click "Copy as Shadertoy", "Copy as Bonzomatic", and "Copy as
+  bare main()" clipboard exports — fixed local string templates, not
+  live integrations, in keeping with Offline-First Isolation.
 - **Golfing profiles**: save the current pass toggles, protected-names
   list, and budget preset to a `.ushaderprofile` file, and load one
   back later, via "Save profile…" / "Load profile…" in the golf
   controls panel. Three built-in read-only profiles (`Maximum`,
   `Safe`, `None`) are also available from the same "Profile" combo,
-  and the last profile path used is remembered across restarts.
+  and the last profile path used is remembered across restarts. The
+  `.ushaderprofile` format is a published, versioned JSON schema —
+  see [`docs/ushaderprofile-schema.md`](docs/ushaderprofile-schema.md)
+  — so other tooling can read or write profiles directly.
 - **Pass-by-pass trace**: a "Trace" tab lists every golfing pass
   considered on the last run, with its change count; expanding a pass
   shows a side-by-side before/after view of that one pass's own delta,
@@ -83,13 +94,35 @@ workspace with a custom borderless window frame.
   counters, and the equivalence-check result, with everything inlined
   and no external references, so it opens correctly offline. An
   "Include screenshot in report" checkbox (off by default) embeds the
-  current viewport as a base64 image.
+  current viewport as a base64 image. There is no bundled PDF exporter:
+  every offline-capable HTML-to-PDF renderer evaluated was either an
+  unmaintained/vendored browser engine (wkhtmltopdf), disproportionately
+  large for one export format (a full Chromium/CEF embed), or missing a
+  lightweight vendorable Windows build (WeasyPrint and its native
+  dependencies) — none of which fit Offline-First Isolation without
+  ballooning the installer or vendoring unpatched code. If you need a
+  PDF, open the exported `.html` report in any browser and use
+  `Ctrl+P` → "Save as PDF"; this stays fully offline since it's your
+  own browser doing the printing, with no network call and nothing
+  extra to install.
 - **Drag-and-drop & Recent Files**: drop one or more `.glsl` files
   onto the main window to open each as a new tab. A "Recent Files"
   submenu under `File` lists previously opened/saved shaders (from
   the dialog, drag-and-drop, or a prior Recent Files entry),
   persisted to `%APPDATA%\ushader\recent_files.json`; entries pointing
   at files that no longer exist are pruned automatically.
+- **Display correctness & accessibility**: the window scales correctly
+  per monitor (drag it between displays with different DPI and the UI
+  rescales), a 13–28pt base font size is adjustable from a new
+  "Appearance" tab, and an off-by-default "Colorblind-safe status
+  indicators" toggle in that same tab makes the equivalence/compile
+  status dots shape-differentiated (circle/triangle/square) instead of
+  same-shaped colored dots. Title-bar buttons, checkboxes, and icon
+  buttons expose a name, role, and location to Windows screen readers
+  (e.g. Narrator) via a minimal UI Automation provider — a
+  screen-reader-nameable baseline, not full keyboard-driven
+  accessibility, which Dear ImGui's immediate-mode widgets don't
+  support.
 
 ## Batch pipeline (CLI)
 
@@ -114,9 +147,74 @@ Key flags: `--profile` loads a `.ushaderprofile` saved from the GUI,
 `--budget <preset>` exits non-zero when any file exceeds the size
 threshold (for failing a CI build on regression), `--report
 <path.json|path.csv>` writes a machine-readable per-file report,
-`--diff` prints a unified source/golfed diff for a dry-run, and
-`--pretty` opts into colored output (off by default so CI logs stay
-clean). Run `golf --help` for the full list.
+`--diff` prints a unified source/golfed diff for a dry-run,
+`--diff-only` prints just the stats summary instead of the golfed
+code (for scripts that only want pass/fail-style output), `--protect
+NAMES` adds a comma-separated list of identifiers to never rename on
+top of any `--profile` list, `--watch FILE` re-golfs a single file to
+stdout every time it changes on disk (polling every 300ms, stop with
+Ctrl+C — for a local live-reload loop during authoring, not a
+build-system integration), and `--pretty` opts into colored output
+(off by default so CI logs stay clean). Run `golf --help` for the
+full list.
+
+### Build system integration
+
+`golf.exe` is a plain console executable with a scriptable exit code
+(non-zero on a budget failure or a read/parse error), so it drops into
+any local build pipeline without µShader bundling a build-system
+plugin or a file-watcher service itself — the two examples below are
+documentation only.
+
+**MSBuild pre-build step.** Add a `PreBuildEvent` to a `.vcxproj` (or
+the equivalent target in a `.csproj`) that golfs every shader under
+the project and fails the build if any file busts its size budget:
+
+```xml
+<Target Name="GolfShaders" BeforeTargets="PreBuildEvent">
+  <Exec Command="golf.exe --budget &quot;4KB intro&quot; --report &quot;$(ProjectDir)shaders\golf_report.json&quot; &quot;$(ProjectDir)shaders&quot;"
+        WorkingDirectory="$(ProjectDir)" />
+</Target>
+```
+
+`golf.exe` must be reachable from the project's `PATH`, or replace
+`golf.exe` above with the full path to the built binary (for example
+`$(ProjectDir)tools\golf.exe`). Because `--report` writes before
+`--budget` can fail the step, `shaders\golf_report.json` still lands on
+disk for inspection even when the build stops on a regression.
+
+**Plain `.bat` watch script.** `golf.exe` already has a built-in
+`--watch` mode for a single file; a `.bat` wrapper just picks the file
+and re-launches it if it ever exits (for example after a transient
+read error), rather than reimplementing polling itself:
+
+```bat
+@echo off
+setlocal
+set SHADER=%1
+if "%SHADER%"=="" set SHADER=shader.glsl
+
+:loop
+golf.exe --watch "%SHADER%" > "%SHADER%.min.glsl"
+timeout /t 1 /nobreak >nul
+goto loop
+```
+
+Run it as `watch.bat shaders\fractal.glsl`. For a whole directory
+instead of one file, loop `golf.exe` itself on a timer since `--watch`
+only takes a single `FILE`:
+
+```bat
+@echo off
+setlocal
+set SHADERS_DIR=%1
+if "%SHADERS_DIR%"=="" set SHADERS_DIR=shaders
+
+:loop
+golf.exe "%SHADERS_DIR%"
+timeout /t 2 /nobreak >nul
+goto loop
+```
 
 ## Installing
 

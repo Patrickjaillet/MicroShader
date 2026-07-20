@@ -1,4 +1,8 @@
-use crate::golfer::{golf_with_protected_names, AggressiveOptions, GolfStats};
+use crate::budget::estimate_budget;
+use crate::golfer::{
+    golf_with_protected_names, golf_with_protected_names_traced, AggressiveOptions, GolferTrace,
+    GolfStats,
+};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
@@ -148,5 +152,127 @@ pub extern "C" fn ushader_free_string(s: *mut c_char) {
     }
     unsafe {
         drop(CString::from_raw(s));
+    }
+}
+
+#[repr(C)]
+pub struct UshaderBudgetResult {
+    pub raw_bytes: usize,
+    pub deflate_bytes: usize,
+}
+
+#[no_mangle]
+pub extern "C" fn ushader_estimate_budget(golfed: *const c_char) -> UshaderBudgetResult {
+    if golfed.is_null() {
+        return UshaderBudgetResult {
+            raw_bytes: 0,
+            deflate_bytes: 0,
+        };
+    }
+    let source = match unsafe { CStr::from_ptr(golfed) }.to_str() {
+        Ok(s) => s,
+        Err(_) => {
+            return UshaderBudgetResult {
+                raw_bytes: 0,
+                deflate_bytes: 0,
+            }
+        }
+    };
+    let result = estimate_budget(source);
+    UshaderBudgetResult {
+        raw_bytes: result.raw_bytes,
+        deflate_bytes: result.deflate_bytes,
+    }
+}
+
+fn json_escape_into(out: &mut String, s: &str) {
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+}
+
+fn trace_to_json(trace: &GolferTrace) -> String {
+    let mut out = String::from("[");
+    for (i, step) in trace.steps.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str("{\"pass_name\":\"");
+        json_escape_into(&mut out, step.pass_name);
+        out.push_str("\",\"before\":\"");
+        json_escape_into(&mut out, &step.before);
+        out.push_str("\",\"after\":\"");
+        json_escape_into(&mut out, &step.after);
+        out.push_str("\",\"count\":");
+        out.push_str(&step.count.to_string());
+        out.push('}');
+    }
+    out.push(']');
+    out
+}
+
+#[no_mangle]
+pub extern "C" fn ushader_golf_traced(
+    source: *const c_char,
+    options: UshaderGolfOptions,
+    protected_names: *const c_char,
+    out_stats: *mut UshaderGolfStats,
+    out_trace_json: *mut *mut c_char,
+) -> *mut c_char {
+    if !out_trace_json.is_null() {
+        unsafe {
+            *out_trace_json = std::ptr::null_mut();
+        }
+    }
+
+    if source.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let source = match unsafe { CStr::from_ptr(source) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let names: Vec<String> = if protected_names.is_null() {
+        Vec::new()
+    } else {
+        match unsafe { CStr::from_ptr(protected_names) }.to_str() {
+            Ok(s) => s
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    };
+
+    let (result, trace) = golf_with_protected_names_traced(source, options.into(), &names);
+
+    if !out_stats.is_null() {
+        unsafe {
+            *out_stats = result.stats.into();
+        }
+    }
+
+    if !out_trace_json.is_null() {
+        if let Ok(c_string) = CString::new(trace_to_json(&trace)) {
+            unsafe {
+                *out_trace_json = c_string.into_raw();
+            }
+        }
+    }
+
+    match CString::new(result.code) {
+        Ok(c_string) => c_string.into_raw(),
+        Err(_) => std::ptr::null_mut(),
     }
 }
