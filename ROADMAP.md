@@ -1309,7 +1309,7 @@ not thrash.
       not a separate system install) — required by Offline-First
       Isolation and by the existing "no separate runtime install"
       user experience the Inno Setup installer already provides.
-- [ ] **Rendering strategy: ANGLE**, not a GLSL→HLSL/Direct3D11
+- [x] **Rendering strategy: ANGLE**, not a GLSL→HLSL/Direct3D11
       rewrite. WinUI 3's `SwapChainPanel` has no native OpenGL context
       — a raw D3D11 rewrite of `render/shader_runner.cpp` was
       considered and rejected for this migration: it would mean

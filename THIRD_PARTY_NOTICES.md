@@ -23,3 +23,22 @@ pixel data and command-line arguments.
 GIF recording does not depend on FFmpeg; it uses the bundled
 public-domain `gif-h` library (https://github.com/charlietangora/gif-h),
 compiled directly into `ushader.exe`.
+
+## ANGLE (`libEGL.dll`, `libGLESv2.dll`)
+
+Used from Phase 22 onward to host the existing OpenGL ES 3 renderer
+(`render/shader_runner.cpp`) inside WinUI 3's `SwapChainPanel`, which
+has no native OpenGL context (GLES 3-over-D3D11). Bundled as
+standalone DLLs shipped next to `ushader.exe` by the Inno Setup
+installer — the same vendoring precedent Phase 9 set for `ffmpeg.exe`
+— not statically linked.
+
+- Project: https://github.com/google/angle
+- License: BSD-style license (Google), see the project's `LICENSE` file
+- Full license text: https://github.com/google/angle/blob/main/LICENSE
+- ANGLE bundles several third-party components under their own
+  licenses, notably Apache License 2.0 for SPIRV-Tools and
+  SPIRV-Cross; their attributions are carried unmodified in ANGLE's
+  own `LICENSE` file, referenced above rather than duplicated here.
+- Corresponding source code for the exact build used is published by
+  the ANGLE project at the link above.

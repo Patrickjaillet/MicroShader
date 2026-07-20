@@ -4,6 +4,29 @@ All notable changes to µShader are documented in this file.
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-07-20
+
+Continues Phase 22 (WinUI 3 migration: architecture decision &
+feasibility spike); 3 of 8 items done.
+
+### Added
+
+- Phase 22: **rendering strategy locked to ANGLE** (GLES 3-over-D3D11),
+  not a GLSL→HLSL/Direct3D11 rewrite. A raw D3D11 rewrite of
+  `render/shader_runner.cpp` was considered and rejected: it would
+  require writing and maintaining a GLSL-to-HLSL translation layer (or
+  vendoring glslang+SPIRV-Cross) for a renderer that already works
+  correctly, doubling the surface area this migration has to prove
+  correct via Phase 15's equivalence safety net. ANGLE lets
+  `shader_runner.cpp`'s GL call sites, the Shadertoy uniform contract,
+  and the Rust golfing engine stay completely untouched — only the
+  window/swapchain plumbing changes in later phases. No renderer code
+  changes in this release — decision-only, per Phase 22's scope.
+- `THIRD_PARTY_NOTICES.md`: added the ANGLE (`libEGL.dll`/
+  `libGLESv2.dll`) attribution entry ahead of the actual vendoring in
+  Phase 23, documenting the BSD-style Google license and noting
+  ANGLE's own bundled Apache-2.0 components (SPIRV-Tools, SPIRV-Cross).
+
 ## [2.6.0] - 2026-07-20
 
 Continues Phase 22 (WinUI 3 migration: architecture decision &
