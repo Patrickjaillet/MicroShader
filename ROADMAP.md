@@ -28,6 +28,16 @@ These conventions apply to every phase below and must never regress.
       This supersedes the original "white theme only" decision below;
       the white theme is kept as historical record only.
 - [x] ~~Theme White only~~ — superseded by Phase 10 (v1.2.x)
+- [ ] UI framework: WinUI 3 / Fluent Design (see Phase 22). This
+      supersedes the Dear ImGui/SDL3 shell described below and in
+      Phase 3/10; Dear ImGui, SDL3's window/input layer, and the
+      bundled ImGui text-editor widget are retired once Phase 27
+      closes. SDL3's role is reduced to nothing (removed entirely) —
+      window, input, and swapchain ownership move to WinUI 3's own
+      `Window`/`SwapChainPanel`. OpenGL rendering itself is kept,
+      hosted through ANGLE (see Phase 23), so `rust-core/`,
+      `render/shader_runner.cpp`'s GL call sites, and the Shadertoy
+      uniform contract are not rewritten.
 - [ ] Source language entirely in English (variable names, functions, classes)
 - [ ] No comments in the source code
 - [ ] Strict Windows 10/11 compatibility only
@@ -72,10 +82,27 @@ These conventions apply to every phase below and must never regress.
   generated header/string — one number, everywhere.
 - Every version bump gets a matching entry in `CHANGELOG.md` and a Git
   tag (`vMAJOR.MINOR.PATCH`).
+- The Phase 22–27 WinUI 3 rewrite breaks the 1:1 Phase→`MAJOR.MINOR`
+  mapping a second time (Phase 9 already did, for the reasons above):
+  Phases 22–26 land on `2.3.x`–`2.7.x` as incremental sub-steps of one
+  rewrite, then Phase 27 — the phase that actually deletes Dear ImGui/
+  SDL3 and ships the WinUI 3 shell as the only shell — jumps straight
+  to `3.0.x`, a deliberate `MAJOR` bump reserved for a complete UI
+  framework replacement rather than the next sequential `2.8.x`.
+- In practice Phase 21 itself already broke that `2.3.x` prediction
+  before Phase 22 started: each partial-item release within Phase 21
+  bumped `MINOR` (`2.2.0` → `2.3.0` → `2.4.0`) instead of staying on a
+  single `2.2.x` line, so Phase 22's first release lands on `2.5.x`,
+  not the `2.3.x` this section predicted above. The prediction text
+  above is left as originally written (historical record, same
+  treatment as the superseded theme entries in section 2) rather than
+  silently corrected.
 
 ---
 
 ## 4. Target architecture
+
+### 4.1 — v1.0–v2.2 (historical; superseded by 4.2 from Phase 22 onward)
 
 ```
 Rust golf engine (rust-core/)
@@ -89,6 +116,31 @@ C++ application (SDL3 + OpenGL)
    ├─ UI shell       : Dear ImGui (docking), Premiere-style dark theme, resizable panels
    ├─ Text editor    : ImGui-based widget with GLSL syntax highlighting
    └─ About / Setup  : copyright panel, Inno Setup installer, icons
+```
+
+### 4.2 — v2.3.x onward (target, Phase 22–27)
+
+```
+Rust golf engine (rust-core/)                          — unchanged, still zero UI knowledge
+        │  extern "C" (cbindgen-generated header)
+        ▼
+C ABI bridge (unchanged, minimal, no comments)
+        │
+        ▼
+C++/WinRT application (WinUI 3 / Windows App SDK)
+   ├─ Renderer   : unchanged fullscreen-triangle Shadertoy-style GL runner,
+   │               hosted through ANGLE (GLES3-over-D3D11) inside a
+   │               SwapChainPanel — no HLSL/D3D shader rewrite, single pass only
+   ├─ UI shell   : WinUI 3 XAML shell — NavigationView/TabView multi-document
+   │               dock, Fluent Mica/Acrylic chrome, ThemeShadow depth, Reveal
+   │               hover, one dark Fluent theme (no light/dark toggle, same
+   │               one-theme rule as Phase 3/10)
+   ├─ Text editor: bespoke XAML/Win2D code-editor control (GLSL highlighting,
+   │               minimap, diff view) replacing the ImGui text-editor widget
+   ├─ Assets/FX  : SVG icon set + multi-scale PNG app/installer icons,
+   │               Lottie-based micro-interactions, connected animations
+   └─ About/Setup: copyright panel, Inno Setup installer (self-contained
+                   Windows App SDK + ANGLE runtime bundled), icons
 ```
 
 ---
@@ -959,7 +1011,7 @@ constraint.
 - [x] "Export report…" action in the File menu and the Phase 18
       command palette, writing to a user-chosen path via the Phase 6
       file-dialog integration.
-- [ ] Optional PDF variant: local HTML-to-PDF via a bundled, embedded
+- [x] Optional PDF variant: local HTML-to-PDF via a bundled, embedded
       renderer only (no system-installed browser dependency, no
       network call) — if no such offline-capable embeddable renderer
       can be sourced and vendored under Offline-First Isolation, this
@@ -967,32 +1019,152 @@ constraint.
       browser" and documented as such in `README.md`, rather than
       silently violating the zero-network-dependency rule.
 
+      **Resolution: dropped, per the fallback above.** Every embeddable
+      HTML-to-PDF option surveyed fails Offline-First Isolation or is
+      disproportionate to a single optional export format:
+      - **wkhtmltopdf** is itself a bundled QtWebKit browser engine —
+        the exact "system-installed browser dependency" this bullet
+        says to avoid, just vendored instead of system-installed — and
+        it has been unmaintained/archived since 2020, so shipping it
+        in a 2026 product means vendoring an unpatched WebKit.
+      - **CEF/Chromium embedding** satisfies "no network call" but not
+        the spirit of "bundled, embedded renderer": it is a full
+        browser engine, on the order of 100+ MB, versus the app's
+        current SDL3/OpenGL/ImGui shell and single bundled
+        `ffmpeg.exe` — it would dominate the installer size for one
+        optional export format on a single report screen.
+      - **WeasyPrint** is pure-Python and does the layout itself (no
+        browser), but pulls in Cairo/Pango/GDK-Pixbuf native
+        dependencies with no lightweight, statically-linkable Windows
+        build suited to silent vendoring into a C++ installer alongside
+        `ushader.exe`.
+      - **litehtml** is the closest fit in spirit (small, MIT, embeddable,
+        no JS, no network) but it is an HTML/CSS layout+paint engine
+        only — it renders into a canvas the host provides, not to PDF.
+        Producing a PDF would mean writing a new PDF-drawing backend
+        for it in-house, which is net-new rendering-engine work, not
+        "sourcing and vendoring" an existing renderer as this bullet
+        calls for.
+
+      Decision: dropped per the documented fallback. The HTML report
+      remains the only export format; `README.md` now documents
+      printing it to PDF from any browser (`Ctrl+P` → "Save as PDF"),
+      which needs no vendored renderer and no network call, since the
+      browser doing the printing is the user's own, already-installed
+      one and the report file itself is still fully self-contained and
+      offline-openable.
+
 ### Phase 20 — v2.1.x — Display correctness & accessibility
 
 Multi-monitor and accessibility gaps the Phase 10 visual overhaul
 did not target, closed as their own dedicated professional-polish
 phase.
 
-- [ ] Correct per-monitor DPI handling: SDL3 high-DPI window flags,
+- [x] Correct per-monitor DPI handling: SDL3 high-DPI window flags,
       ImGui `FontGlobalScale`/style scaling recomputed on
       `SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED`, verified by dragging
       the window between two monitors with different scale factors.
-- [ ] User-adjustable base UI font size (separate from the fixed
+      Implemented as `SDL_WINDOW_HIGH_PIXEL_DENSITY` on window creation,
+      a new `ui/theme.cpp`'s `apply_dpi_scale(io, scale)` that rescales
+      from a captured, unscaled style snapshot (so repeated calls never
+      compound) and sets `io.FontGlobalScale`, called once at startup
+      with `SDL_GetWindowDisplayScale()` and again from `main.cpp`'s
+      event loop whenever `SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED`
+      fires — SDL doesn't carry the new scale in the event payload, so
+      the handler re-queries `SDL_GetWindowDisplayScale(window)` for
+      the window's now-current display. Fonts stay rasterized at their
+      Phase 10 fixed pixel size (no atlas rebuild per monitor), so text
+      is upscaled via `FontGlobalScale` like the widget metrics rather
+      than re-rendered crisp at the new DPI — acceptable per this
+      bullet's own wording ("FontGlobalScale/style scaling"), with some
+      softening above roughly 150% scale.
+- [x] User-adjustable base UI font size (separate from the fixed
       Phase 10.2 metrics), persisted per Phase 16 workspace/user
       settings, with panel paddings/line-heights that scale
       proportionally rather than only the font glyph size.
-- [ ] Colorblind-safe alternate token set for `status.ok` /
+      Implemented as a new "Appearance" tab (next to About/Keyboard
+      Shortcuts) with a 13–28pt slider over `ui/theme.h`'s
+      `kDefaultBaseFontSize`/`kMinBaseFontSize`/`kMaxBaseFontSize`.
+      Rather than reloading the font atlas per size — which the fixed
+      Phase 10.2 rasterization doesn't do per-monitor either — the
+      chosen size is expressed as a ratio against the default and
+      combined multiplicatively with the Phase 20.1 DPI scale into one
+      factor fed to `apply_dpi_scale()`, so paddings and line-heights
+      (via `ImGuiStyle::ScaleAllSizes`) grow with the glyphs rather
+      than the text alone. Persisted as `ui_font_size` on
+      `WorkspaceState` (`ui/workspace.h`/`.cpp`) — a new top-level,
+      non-per-tab field alongside `active_tab`/`layout_ini` in the same
+      `last_session.ushaderworkspace` file Phase 16 already writes —
+      loaded and applied at startup ahead of (and independent from) the
+      "Restore last session?" tab-reopen confirmation, since it's an
+      appearance setting rather than reopened file content. A missing,
+      malformed, or out-of-range value falls back to the 18pt default.
+- [x] Colorblind-safe alternate token set for `status.ok` /
       `status.warning` / `status.error` (shape/icon-differentiated,
       not color-only — a small filled circle/triangle/square instead
       of three same-shaped colored dots), toggleable, sitting on top
       of the existing Phase 10.1 token table rather than replacing it.
-- [ ] Windows UI Automation names/roles set on every custom-drawn
+      Implemented as a `StatusKind` (`Ok`/`Warning`/`Error`) parameter
+      on `ui/theme.cpp`'s `render_status_dot()` — the literal
+      same-shaped-dot indicator used for the equivalence-check and
+      shader-compile status — replacing its previous raw-`ImVec4`
+      signature; the function still looks the fill color up from the
+      unchanged Phase 10.1 `status.ok`/`status.warning`/`status.error`
+      tokens either way, so the toggle only ever changes the shape, not
+      the token table. A new global `g_colorblind_safe_indicators`
+      (off by default, not persisted — same precedent as the existing
+      Minimap toggle) is flipped from a checkbox in the Phase 20.2
+      "Appearance" tab; when on, Warning renders as a filled triangle
+      and Error as a filled square, both sized to the same footprint as
+      the Ok circle so row layout doesn't shift when toggled.
+- [x] Windows UI Automation names/roles set on every custom-drawn
       control introduced since Phase 10 (title-bar buttons, themed
       checkboxes, icon buttons) so the app is at minimum
       screen-reader-nameable, even though ImGui's immediate-mode model
-      limits full accessibility-tree fidelity.
-- [ ] Contrast re-verification (same WCAG AA script used in 10.1/10.8)
+      limits full accessibility-tree fidelity. Implemented as a new
+      `platform/accessibility.cpp`: a `WM_GETOBJECT` handler installed
+      by subclassing the SDL window's `WNDPROC` (`GWLP_WNDPROC`) at
+      startup, returning a minimal `IRawElementProviderFragmentRoot` /
+      `IRawElementProviderFragment` / `IRawElementProviderSimple` COM
+      tree via `UiaReturnRawElementProvider()`. Each frame, the three
+      call sites (title-bar minimize/maximize/close in `main.cpp`,
+      `themed_checkbox()` and the shared `icon_button_ex()` helper)
+      register their current name, `ButtonControlType`/
+      `CheckBoxControlType`, and screen-space bounding rect into a
+      small registry (`accessibility_begin_frame()` /
+      `accessibility_register()` / `accessibility_end_frame()`,
+      converted from ImGui client coordinates to desktop screen
+      coordinates via `ClientToScreen()` once per frame so UIA queries
+      never need to touch app state directly); checkboxes also expose
+      `IToggleProvider::get_ToggleState()`. Matching the bullet's own
+      "at minimum screen-reader-nameable" wording rather than claiming
+      full fidelity: `IsKeyboardFocusable` is reported `false` and
+      `Invoke`/`Toggle` are no-ops, since real keyboard-driven
+      activation would require restructuring every immediate-mode
+      click call site (`if (icon_button(...)) { ... }`) to route
+      through a provider callback instead of a same-frame return value
+      — out of proportion to a "nameable" bar. A screen reader (e.g.
+      Narrator) can still announce name, role, and location by mouse/
+      touch hover or by UIA content-view navigation. Status dots
+      (`render_status_dot()`) were intentionally left out, since the
+      bullet's own enumeration only lists title-bar buttons, themed
+      checkboxes, and icon buttons.
+- [x] Contrast re-verification (same WCAG AA script used in 10.1/10.8)
       run against both the default and colorblind-safe token sets.
+      Implemented as `scripts/check_contrast.py`, the same relative-
+      luminance/contrast-ratio method as 10.1/10.8 (not previously
+      checked into the repo), now parsing `theme_tokens.h` directly
+      rather than hand-copied hex values so it can be re-run after any
+      future token edit. Re-verified all four `text.primary`/
+      `text.secondary` vs `bg.panel`/`bg.app` pairs: 12.59:1, 13.36:1,
+      5.87:1, 6.22:1 — matching the 10.1/10.8 figures exactly, all
+      above the 4.5:1 AA threshold. The "colorblind-safe token set"
+      named in this bullet does not exist separately: Phase 20.3 (see
+      above) reuses the unchanged Phase 10.1 `status.ok`/`warning`/
+      `error` tokens and only swaps the drawn shape, so running the
+      same script against it reproduces the identical numbers — the
+      script prints both runs and that fact explicitly rather than
+      silently skipping the second pass.
 
 ### Phase 21 — v2.2.x — Offline interop with other golf/shader tools
 
@@ -1002,19 +1174,99 @@ non-networked shader tools alongside µShader — still zero network
 dependency, since every adapter here is a local text-format reader or
 a local boilerplate template, never an API client.
 
-- [ ] Import adapter for Shader Minifier–style exclude-name lists
+- [x] Import adapter for Shader Minifier–style exclude-name lists
       (plain-text, one identifier per line) into the Phase 5
       protected-names field, so a project's existing exclude list does
-      not need retyping.
-- [ ] Export wrappers: one-click "Copy as Shadertoy `mainImage`",
+      not need retyping. Implemented as a new
+      `ui/exclude_list_import.h`/`.cpp`: `parse_exclude_name_list()`
+      reads the plain-text list (one identifier per line, `\n` or
+      `\r\n`, blank lines skipped, and — beyond the format Shader
+      Minifier itself writes — lines starting with `//` or `#` are
+      also tolerated as comments, so a hand-edited list still imports
+      cleanly) and `merge_protected_names()` appends any new names to
+      the existing Phase 5 comma-separated field without duplicating
+      ones already present, preserving the existing list's order and
+      its own already-typed entries rather than overwriting them. A
+      new "Import exclude list..." button sits next to the "Protected
+      names" field in `ui/golf_controls.cpp`, opening a standard
+      Windows file-open dialog (`.txt` filter) via the existing
+      `platform/file_dialog` helper — a local file read, no different
+      in kind from the existing "Load profile..." action, so nothing
+      new crosses the Offline-First Isolation line. Covered by
+      `tests/exclude_list_import_test.cpp`.
+- [x] Export wrappers: one-click "Copy as Shadertoy `mainImage`",
       "Copy as Bonzomatic-ready source", and "Copy as bare
       `void main()`" variants of the golfed output, each a fixed local
       string template — not a live integration with any of those
       tools, since none is networked and Offline-First Isolation rules
-      out anything that would require one running.
-- [ ] `.ushaderprofile` (Phase 13) documented, versioned JSON schema
+      out anything that would require one running. Implemented as a
+      new `ui/export_wrappers.h`/`.cpp` with three pure string
+      functions, plus matching one-click buttons in the Golfed panel
+      toolbar and matching command-palette entries (`main.cpp`), each
+      copying straight to the clipboard via `SDL_SetClipboardText`
+      like the existing "Copy" action. `wrap_as_shadertoy_main_image()`
+      and `wrap_as_bonzomatic_source()` are both the identity function
+      on the golfed text: Shadertoy's Image tab and Bonzomatic (which
+      was built to keep shader-showdown entries portable to and from
+      Shadertoy) both auto-inject the same uniform set — `iTime`,
+      `iResolution`, `iMouse`, `iDate`, `iFrame`, `iFrameRate`, plus a
+      few Bonzomatic doesn't use, `iTimeDelta`/`iChannelTime`/
+      `iChannelResolution`/`iSampleRate`/`iChannel0..3` — and call the
+      user's `mainImage(fragColor, fragCoord)` themselves, which is
+      already exactly µShader's own golfed output format; the two
+      buttons are kept as separate, clearly-labeled one-click actions
+      for workflow clarity (pasting into the right tool without having
+      to remember they happen to be the same text) rather than
+      collapsed into one, and are free to diverge later if either
+      target's expected format ever does. `wrap_as_bare_main()` does a
+      real transformation: `extract_main_image_signature()` regex-reads
+      the *actual* current parameter names out of the golfed
+      `mainImage(out vec4 X, in vec2 Y)` signature — golfing renames
+      these like any other locals, so they're rarely still literally
+      `fragColor`/`fragCoord` — and the wrapper prepends the same
+      `iTime`/`iResolution`/`iMouse`/`iDate`/`iFrame`/`iFrameRate`
+      uniform declarations the Phase 1 `render/shader_runner.cpp`
+      already prepends internally for the live preview, then appends a
+      standalone `void main(){ vec4 X; vec2 Y = gl_FragCoord.xy;
+      mainImage(X, Y); gl_FragColor = X; }`. Unlike
+      `shader_runner.cpp`'s own core-profile wrapping this adds no
+      `#version` line and writes to the builtin `gl_FragColor` instead
+      of a declared `out vec4`, since "bare" is read here as the most
+      widely-portable option — the compatibility-profile form most
+      raw/legacy GLSL sandboxes and 4k-style bare shaders accept
+      without any pragma. If the signature can't be found (already
+      broken source, or no `mainImage` at all), the function returns
+      the input unchanged rather than emitting a wrapper around
+      nothing. Covered by `tests/export_wrappers_test.cpp`.
+- [x] `.ushaderprofile` (Phase 13) documented, versioned JSON schema
       published in `docs/` so external tooling can generate/consume
-      profiles without reverse-engineering the format.
+      profiles without reverse-engineering the format. Published as
+      `docs/ushaderprofile.schema.json` (a JSON Schema draft 2020-12
+      document covering all 19 fields — the 16 boolean pass toggles,
+      `protected_names`, `budget_preset` with its 6-value enum kept in
+      sync with `ui/budget_presets.cpp`, and the new `schema_version`
+      field itself) plus `docs/ushaderprofile-schema.md`, a
+      human-readable spec: field table, compatibility rules (unknown
+      fields ignored, missing optional fields fall back to a
+      documented default), and a schema-version history table. Made
+      genuinely "versioned" rather than just documented after the
+      fact: `ui/golf_profile.cpp`'s `serialize_golf_profile()` now
+      stamps `"schema_version": 1` as the first field of every newly
+      written profile, via a small `append_int_field()` helper next to
+      the existing `append_bool_field()`. This is additive and
+      backward-compatible on purpose — `deserialize_golf_profile()`
+      already ignores any field it doesn't explicitly look up, so
+      every `.ushaderprofile` written before this change (no
+      `schema_version` field at all) continues to load unchanged and
+      is documented as implicitly schema version 1.
+      `fixtures/sample.ushaderprofile` (loaded by
+      `tests/golf_profile_roundtrip_test.cpp`) gained the field too,
+      verified not to break that test's round-trip. A new
+      `tests/ushaderprofile_schema_test.cpp` cross-checks the
+      documented field list and the documented `budget_preset` enum
+      against `serialize_golf_profile()`'s real output and
+      `budget_presets()`'s real preset list respectively, so the
+      published schema can't silently drift from the implementation.
 - [ ] `bin/golf.rs` batch mode (Phase 17) documented with example
       invocations for common local build systems (MSBuild pre-build
       step, a plain `.bat` watch script) in `README.md` — documentation
@@ -1026,6 +1278,284 @@ a local boilerplate template, never an API client.
       12–21 introduces a network call, a non-English string, a source
       comment, or a non-Windows code path — verified against section 2
       before tagging `v2.2.0`.
+
+### Phase 22 — v2.3.x — WinUI 3 migration: architecture decision & feasibility spike
+
+µShader's Dear ImGui/SDL3 shell has reached its ceiling: immediate-mode
+rendering cannot produce Fluent Design's layered materials (Mica,
+Acrylic), real vector/SVG iconography, or composition-based motion
+(connected animations, Reveal, Lottie micro-interactions) without
+essentially reimplementing a retained-mode UI framework by hand inside
+ImGui — which is exactly what WinUI 3 already is. This phase is a
+decision-and-spike phase only: no panel is rewritten yet (that starts
+at Phase 24); it exists to lock the architecture so Phases 23–27 do
+not thrash.
+
+- [x] **Toolchain**: **C++/WinRT**, not C#/.NET. Rejected C#/.NET
+      despite its faster XAML iteration loop, because it would force
+      the existing direct, zero-marshaling call into `rust-core`'s C
+      ABI (`ushader_golf`, `ushader_golf_traced`, `ushader_estimate_budget`,
+      …) through P/Invoke, and would add the .NET runtime as a new
+      dependency the app has never had — in tension with Offline-First
+      Isolation's "embedded locally" spirit even where .NET can be
+      self-contained-deployed. C++/WinRT keeps `main.cpp` calling into
+      `include/ushader/golf_core.h` exactly as today; only the UI shell
+      above it changes.
+- [ ] **Windows App SDK channel**: pin to the latest stable (non-
+      preview) Windows App SDK release available at implementation
+      time, self-contained deployment (the runtime is packaged with
+      the app, not a separate system install) — required by Offline-
+      First Isolation and by the existing "no separate runtime install"
+      user experience the Inno Setup installer already provides.
+- [ ] **Rendering strategy: ANGLE**, not a GLSL→HLSL/Direct3D11
+      rewrite. WinUI 3's `SwapChainPanel` has no native OpenGL context
+      — a raw D3D11 rewrite of `render/shader_runner.cpp` was
+      considered and rejected for this migration: it would mean
+      writing and maintaining a GLSL-to-HLSL translation layer (or
+      vendoring glslang+SPIRV-Cross) for a renderer that already works
+      correctly, doubling the surface area this migration has to prove
+      correct via Phase 15's equivalence safety net. ANGLE (GLES 3-
+      over-D3D11) lets `shader_runner.cpp`'s GL call sites, the
+      Shadertoy uniform contract (`iTime`/`iResolution`/`iMouse`/
+      `iDate`/`iFrame`/`iFrameRate`), and the Rust golfing engine stay
+      completely untouched — only the window/swapchain plumbing around
+      the renderer changes. Tradeoff accepted knowingly: ANGLE adds
+      `libEGL.dll`/`libGLESv2.dll` as bundled binaries (same "vendored
+      next to `ushader.exe`, shipped by the installer" precedent Phase
+      9 already set for `ffmpeg.exe`) and a BSD/Apache-2.0 attribution
+      entry in `THIRD_PARTY_NOTICES.md`, in exchange for a near-zero-
+      risk renderer port.
+- [ ] **Packaging model**: unpackaged, self-contained `.exe` +
+      Inno Setup installer — not MSIX/Microsoft Store. WinUI 3 apps
+      are commonly packaged as MSIX, but µShader has no Store
+      presence, no need for MSIX's per-user install/AppContainer
+      sandboxing, and switching would mean replacing the working
+      `installer/ushader.iss` pipeline (Phase 8) for no functional
+      gain. Windows App SDK's self-contained, unpackaged deployment
+      mode is explicitly designed for exactly this case and keeps
+      Phase 8's installer conventions (icons, versioning, unsigned-
+      until-a-cert-exists) intact.
+- [ ] **Removal list** (executed across Phases 23–27, not this one):
+      Dear ImGui (all `imgui_*` sources and the docking branch fetch),
+      SDL3 (window creation, event pump, clipboard, borderless-window
+      hit-testing from Phase 10.3), the bundled ImGui text-editor
+      widget, and the Lucide icon font. `rust-core/`, `include/ushader/
+      golf_core.h`, every `platform/*` file not tied to SDL3 window
+      management (file dialogs, paths, recorder, screenshot, utf8),
+      and every `report/*` file are unaffected and carry over as-is.
+- [ ] **Repository layout changes** (supersedes section 5 once
+      Phase 27 lands): `src/render/` keeps its GL code, gains an ANGLE-
+      hosting `SwapChainPanel` adapter; `src/ui/` (ImGui panels) is
+      replaced by `src/shell/` (XAML views/view-models) and
+      `assets/xaml/` (resource dictionaries, control templates);
+      `assets/icons/` gains an `assets/icons/ui/*.svg` subtree (Phase
+      25); `assets/fonts/lucide.ttf` is removed once Phase 25 finishes
+      the SVG icon cutover.
+- [ ] **Risk register**, reviewed again at the end of each subsequent
+      phase rather than only here: (1) ANGLE's DXGI swapchain lifetime
+      interacting with XAML's own composition swapchain — validated by
+      Phase 23's spike before any panel work starts; (2) a bespoke
+      GLSL-highlighting code editor is real UI-control engineering, not
+      a drop-in replacement (Phase 26 is scoped as the largest phase in
+      this arc accordingly); (3) Fluent Design's authentic corner-
+      radius/elevation system does not map 1:1 onto the flat, 2px-
+      radius Phase 10 Premiere language — Phase 24 explicitly documents
+      this as a deliberate visual-language change, not a bug, so
+      reviewers don't flag the new rounding as a Phase 10 regression.
+- [ ] `CHANGELOG.md` entry noting the architecture decision (no user-
+      facing behavior change yet — this phase ships no runtime code).
+
+### Phase 23 — v2.4.x — Rendering pipeline: ANGLE inside a SwapChainPanel
+
+- [ ] `src/render/`: new `AngleSwapChainHost` adapter — creates an EGL
+      display/context/surface bound to a `Windows::UI::Xaml::Controls::
+      SwapChainPanel` via `ISwapChainPanelNative::SetSwapChain`,
+      replacing SDL3's `SDL_GL_CreateContext`/`SDL_GL_SwapWindow` pair.
+      `ShaderRunner`'s own GL calls (compile, link, uniform upload,
+      `glDrawArrays` fullscreen-triangle draw) are untouched.
+- [ ] Resize handling: `SwapChainPanel::SizeChanged` drives an EGL
+      surface resize + GL viewport update, replacing SDL3's
+      `SDL_EVENT_WINDOW_RESIZED` handler.
+- [ ] Bundle `libEGL.dll`/`libGLESv2.dll` next to `ushader.exe`
+      (build-time fetch, mirroring Phase 9's `ffmpeg.exe` precedent)
+      and add the ANGLE attribution to `THIRD_PARTY_NOTICES.md`.
+- [ ] Re-run the Phase 15 automated multi-frame equivalence safety net
+      (source vs. golfed, bit-exact by default) against the ANGLE-
+      hosted renderer to prove the swapchain-hosting change introduces
+      no pixel drift, before any XAML shell work begins on top of it.
+- [ ] Compile/link error surfacing (Phase 3) re-wired from stdout/ImGui
+      into a shell-agnostic error-state struct the eventual Phase 24
+      shell reads — decoupled here so Phase 24 has no renderer-side
+      work left to do.
+- [ ] Standalone spike target (no full shell yet): a bare XAML window
+      with one `SwapChainPanel` rendering the existing hardcoded
+      default shader, animating via `iTime`, resizable — the minimum
+      proof this phase's architecture decision holds before Phase 24
+      commits to building the real shell on top of it.
+
+### Phase 24 — v2.5.x — XAML application shell, navigation & Fluent chrome
+
+- [ ] `App.xaml`/`MainWindow.xaml` scaffolding, Windows App SDK
+      self-contained deployment wired into CMake (replacing the SDL3/
+      Dear ImGui `FetchContent` entries from Phase 0/3).
+- [ ] Custom title bar via `AppWindow::TitleBar::ExtendsContentIntoTitleBar`
+      + a Mica (or Mica Alt) backdrop, replacing Phase 10.3's SDL3
+      `SDL_WINDOW_BORDERLESS` + manual `SDL_HitTest` chrome entirely —
+      WinUI 3's own title-bar APIs supersede that hand-rolled
+      drag-region/hit-test/button code.
+- [ ] Multi-document dock: `TabView` for the open-shader tab strip
+      (Phase 16 parity) hosting a `NavigationView` or `Pivot`-based
+      Source/Golfed/Viewport/Trace/Diff panel switcher per tab —
+      Fluent-native equivalents of the Phase 3 three-panel layout and
+      Phase 18's fourth Trace/Diff slot.
+- [ ] `theme_tokens.h` → XAML `ResourceDictionary`: every Phase 10.1
+      named token (`bg.app`, `bg.panel`, `accent`, `status.ok`, …)
+      re-expressed as a `SolidColorBrush`/`Color` resource, still one
+      theme only (no light/dark toggle — same one-theme rule as
+      Phase 3/10, just re-hosted). Re-run the Phase 10.1/20.5 WCAG AA
+      contrast script against the re-expressed brushes before closing
+      this bullet.
+- [ ] Corner radius: adopt Fluent's authentic control corner-radius
+      scale (4px small controls, 8px cards/panels) — a deliberate,
+      documented departure from Phase 10.2's flat `2px`-everywhere
+      Premiere language, not a regression of it. `ThemeShadow` gives
+      panels real elevation (docked panels, flyouts, the command
+      palette from Phase 26) in place of Phase 10's flat, shadowless
+      surfaces.
+- [ ] Reveal hover/focus highlight on interactive controls (buttons,
+      tab items, list rows) — the Fluent-native replacement for the
+      hand-rolled `bg.hover`/`bg.active` state colors Phase 10.4 wired
+      into ImGui's `ImGuiCol_*` slots.
+- [ ] Acrylic backdrop reserved for transient surfaces only (flyouts,
+      the Phase 26 command palette) — not the main panel backgrounds,
+      to keep the Program-Monitor-style opaque `bg.field.deepest`
+      viewport (Phase 10.5) legible and consistent with a video/shader
+      tool's expectations rather than letting content show through.
+- [ ] `docs/screenshot.png` retaken against the new bare shell (no
+      panels ported yet beyond Viewport) purely to document chrome
+      progress; a full retake happens again at Phase 27 acceptance.
+
+### Phase 25 — v2.6.x — Iconography, SVG/PNG asset system & motion FX
+
+This is the phase that makes the app "as beautiful as possible" in
+concrete, buildable terms: every visual asset touched, real vector
+iconography, and genuine (not decorative-only) motion.
+
+- [ ] Replace `assets/fonts/lucide.ttf` glyph-font icons with a real
+      SVG icon set under `assets/icons/ui/*.svg`, rendered via XAML
+      `PathIcon`/`AnimatedIcon` or a Win2D `CanvasSvgDocument` where an
+      icon needs multi-color fills the single-path `PathIcon` can't
+      express — resolves the Phase 3 `MergeMode` font-atlas bug
+      outright (SVG icons never share a glyph atlas with body text, so
+      they can finally sit inline inside window/tab titles, which
+      Phase 3 explicitly could not do).
+- [ ] Icon color states (idle `text.secondary`, hover `text.primary`,
+      active `accent` — Phase 10.6's scheme) re-implemented as XAML
+      `VisualStateManager` states bound to the Phase 24 brush
+      resources, animated with a short (~100ms) brush-transition
+      rather than an instant color swap.
+- [ ] Regenerate `assets/icons/app_source.png` → multi-scale PNG set
+      (44/71/150/310px tiles, plus the existing `.ico` sizes) and
+      `docs/logo.png` at higher resolution — Phase 10.6 explicitly
+      deferred both regenerations as "not worth the risk" under the
+      old ImGui/flat-icon look; the SVG/Fluent visual language is a
+      large enough identity shift that both are revisited here
+      instead of reused as-is a second time.
+- [ ] Motion FX, vendored offline (zero network dependency, same rule
+      as the Phase 9 bundled ffmpeg / Phase 23 bundled ANGLE):
+      - Micro-interactions via `AnimatedVisualPlayer` + a small set of
+        bundled Lottie/Bodymovin `.json` animations — Run-golf success
+        pulse, compile-error shake on the status dot, tab-open/close.
+      - `ConnectedAnimation` when switching the active tab in the
+        Phase 24 `TabView`, and when expanding a Phase 14 Trace-tab
+        pass entry.
+      - A subtle animated pulse on the Phase 10.5/15 status dot while
+        an equivalence check or golf run is in flight, replacing the
+        old static dot with a genuine busy state.
+      - Shimmer/skeleton placeholder for the Viewport panel during the
+        brief ANGLE surface (re)initialization window on startup or
+        resize, instead of a blank black frame.
+- [ ] Acceptance: every icon in the app is SVG-sourced (no remaining
+      glyph-font `PushFont()`/`PopFont()` call sites — that pattern no
+      longer exists once this phase closes), and at least the four
+      motion points above are wired to real UI events, not only
+      present as unused assets.
+
+### Phase 26 — v2.7.x — Editor & panel feature parity
+
+The largest phase in this arc, per Phase 22's risk register: WinUI 3
+ships no code-editor control, so the Phase 4/18 editor experience has
+to be rebuilt, not just re-skinned. No phase here is considered done
+until its ImGui-era equivalent's behavior is demonstrably matched.
+
+- [ ] Bespoke GLSL code-editor control: a `RichEditBox`-hosted
+      colorizer (background re-tokenization on text change, using the
+      existing `classify_glsl_token()` rules from `ui/glsl_language.cpp`/
+      `ui/minimap.cpp` — reused, not rewritten) if `RichEditBox`'s
+      run-formatting API proves sufficient at the spike stage; falls
+      back to a custom Win2D-rendered text-layout control (full manual
+      caret/selection/scroll handling) if it does not. This fallback
+      decision is made and documented at the start of this phase, not
+      discovered midway.
+- [ ] Feature parity checklist against the retired ImGui editor:
+      syntax highlighting (Phase 4), error-line highlighting (Phase 4),
+      read-only Golfed view + Formatted toggle (Phase 4), minimap
+      (Phase 18), inline unified diff view (Phase 18), the Phase 14
+      Trace tab's per-pass before/after panes.
+- [ ] Command palette (Phase 18) rebuilt on a Fluent `CommandBarFlyout`/
+      `AutoSuggestBox` combo — same fuzzy-search-over-existing-actions
+      behavior, new host control.
+- [ ] Rebindable keybindings (Phase 18), drag-and-drop `.glsl` files
+      onto the main window (Phase 18), and the Recent Files list —
+      ported to WinUI 3's own drag-drop and accelerator-key APIs;
+      the underlying `%APPDATA%\ushader\keybindings.json` format and
+      recent-files store are unchanged.
+- [ ] Golf controls, Stats, Compare, Appearance, and About panels
+      (Phases 5, 12, 15, 20, 7) rebuilt as XAML views bound MVVM-style
+      (`x:Bind`) to the existing C++ state structs — a binding-layer
+      change only; no golfing/budget/equivalence logic is touched.
+- [ ] Windows UI Automation (Phase 20.4) is substantially simplified by
+      this phase rather than extended: WinUI 3 controls expose UIA
+      automation peers natively, so the Phase 20.4 `WM_GETOBJECT`/
+      manual-provider shim becomes dead code to delete at Phase 27,
+      not code to port.
+
+### Phase 27 — v3.0.x — ImGui/SDL3 removal, packaging & acceptance
+
+The phase that makes the switch real: nothing UI-related may still
+depend on Dear ImGui, SDL3, or the Lucide font once this phase closes.
+
+- [ ] Delete Dear ImGui, SDL3, and the ImGui text-editor widget: source,
+      `FetchContent`/vcpkg entries, and every remaining `imgui_*`/`SDL_*`
+      call site (the Phase 20.4 UIA shim included, per Phase 26's note).
+      `src/ui/` is removed; `src/shell/` (Phase 24) is the only UI tree.
+- [ ] `CMakeLists.txt` rewritten for C++/WinRT + self-contained Windows
+      App SDK, `rust-core`'s Cargo-via-CMake wiring (Phase 1) unchanged.
+- [ ] `installer/ushader.iss` updated: bundles the self-contained
+      Windows App SDK runtime and the Phase 23 ANGLE DLLs alongside
+      `ushader.exe`, keeping the existing "no separate runtime install"
+      user experience; installer/app icons regenerated at Phase 25's
+      new resolutions.
+- [ ] Full regression pass of every Phase 12–21 feature against the new
+      shell (budgets, profiles, trace, equivalence checks, workspace/
+      session persistence, batch CLI — the CLI itself is UI-independent
+      and unaffected, but its `.ushaderprofile`/report consumers in the
+      GUI must still round-trip correctly).
+- [ ] WCAG AA contrast re-verification (`scripts/check_contrast.py`,
+      Phase 10.1/20.5 precedent) against the final Phase 24 XAML brush
+      resources.
+- [ ] `docs/screenshot.png` retaken against the fully-ported shell;
+      `README.md` rewritten to describe the WinUI 3/Fluent shell in
+      place of the retired Dear ImGui description.
+- [ ] `CHANGELOG.md` `3.0.0` entry summarizing the Phase 22–27 arc as
+      one breaking change (UI framework replacement — build toolchain,
+      contributor setup, and packaging all change; no end-user-facing
+      capability from Phases 0–21 is removed), tag `v3.0.0`.
+- [ ] Re-verify every section 2 convention still holds against the new
+      codebase (English-only, no source comments, Windows-10/11-only,
+      Offline-First Isolation, MIT license) before tagging — the same
+      acceptance discipline Phase 21's closing bullet applied to the
+      12–21 arc, applied here to 22–27.
 
 ---
 
@@ -1041,3 +1571,17 @@ a local boilerplate template, never an API client.
 - Any language other than English in the UI or source
 - Any AI-tool attribution anywhere in the repository, commit history,
   or contributors list
+- **MSIX/Microsoft Store packaging** (Phase 22) — the WinUI 3 rewrite
+  stays unpackaged and self-contained via Inno Setup, matching the
+  existing installer's distribution model; no Store listing is created.
+- **A GLSL→HLSL/Direct3D11 renderer rewrite** (Phase 22/23) — ANGLE
+  hosts the existing OpenGL renderer as-is; native Direct3D shader
+  translation was evaluated and rejected as unnecessary risk for this
+  migration, not deferred for later.
+- **A light theme, or a theme toggle, in the WinUI 3 shell** — the
+  Phase 24 XAML re-hosting of the Phase 10 dark tokens is still one
+  theme only, same rule as every prior phase.
+- **Multi-buffer Shadertoy rendering** remains out of scope through the
+  WinUI 3 rewrite as well — Phase 22–27 changes the shell and the
+  window/swapchain host, never the single-`mainImage`-pass rendering
+  model itself.

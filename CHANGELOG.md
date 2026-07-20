@@ -2,6 +2,175 @@
 
 All notable changes to µShader are documented in this file.
 
+## [Unreleased]
+
+## [2.5.0] - 2026-07-20
+
+Starts Phase 22 (WinUI 3 migration: architecture decision & feasibility
+spike); 1 of 8 items done.
+
+### Added
+
+- Phase 22: architecture decision locked — the WinUI 3 rewrite (Phases
+  22–27) will use **C++/WinRT**, not C#/.NET. C#/.NET was rejected
+  despite its faster XAML iteration loop because it would force the
+  existing direct, zero-marshaling call into `rust-core`'s C ABI
+  (`ushader_golf`, `ushader_golf_traced`, `ushader_estimate_budget`, …)
+  through P/Invoke, and would add the .NET runtime as a new dependency
+  the app has never had — in tension with Offline-First Isolation's
+  "embedded locally" spirit even where .NET can be self-contained-
+  deployed. C++/WinRT keeps `main.cpp` calling into
+  `include/ushader/golf_core.h` exactly as today; only the UI shell
+  above it changes in later phases. No runtime code changes in this
+  release — decision-only, per Phase 22's scope.
+
+### Fixed
+
+- `ROADMAP.md` section 3: documented that Phase 21's per-item releases
+  already consumed `2.2.x`–`2.4.x` instead of stopping at `2.2.x`, so
+  Phase 22 starts at `2.5.x` rather than the `2.3.x` the versioning
+  scheme's Phase 22–27 note predicted. The original prediction text is
+  kept as historical record rather than silently edited.
+
+## [2.4.0] - 2026-07-20
+
+Closes out Phase 21 (Offline interop with other golf/shader tools) and
+the Phase 12–21 arc as a whole.
+
+### Added
+
+- Phase 21: a "Build system integration" section in `README.md`'s
+  Batch pipeline documentation, with a concrete MSBuild `PreBuildEvent`
+  target (`golf.exe --budget ... --report ...`, failing the build on a
+  size regression) and a plain `.bat` watch script wrapping the CLI's
+  existing `--watch` mode — documentation only, no bundled MSBuild
+  target or watcher service shipped.
+- Phase 21: `--watch`, `--diff-only`, and `--protect`, three `golf.rs`
+  CLI flags that existed in the binary and its `--help` text since
+  Phase 17 but were never added to `ROADMAP.md`, `CHANGELOG.md`, or
+  `README.md`, found during this release's final-acceptance pass and
+  documented in all three now.
+
+### Fixed
+
+- Phase 12–21 final acceptance: removed source comments that had crept
+  into `ui/theme.h`/`.cpp`, `ui/workspace.h`/`.cpp`,
+  `render/shader_runner.h`/`.cpp`, and `main.cpp` during Phases 15 and
+  20, in violation of the section 2 "no comments in the source code"
+  convention. No behavior change; comment text only.
+- `README.md`'s screenshot caption updated from "Source, Golfed, and
+  Viewport panels" to also name the Trace and Diff panels added in
+  Phases 14 and 18, which the caption had never been updated to
+  mention. `docs/screenshot.png` itself is unchanged in this release —
+  re-rendering it needs a live build on the Windows/MSVC/SDL3/OpenGL
+  toolchain, tracked as a follow-up rather than silently assumed done.
+
+## [2.3.0] - 2026-07-20
+
+Phase 21 (Offline interop with other golf/shader tools); 3 of 5 items
+done.
+
+### Added
+
+- Phase 21: `docs/ushaderprofile.schema.json`, a published JSON
+  Schema for the `.ushaderprofile` format, and
+  `docs/ushaderprofile-schema.md`, the accompanying human-readable
+  spec (field table, compatibility rules, schema-version history), so
+  external tooling can generate or consume profiles without
+  reverse-engineering `golf_profile.cpp`.
+- Phase 21: `.ushaderprofile` files now carry an explicit
+  `"schema_version": 1` field, making the format actually versioned
+  rather than only documented. Older profile files without the field
+  keep loading unchanged and are treated as schema version 1.
+
+## [2.2.0] - 2026-07-20
+
+Starts Phase 21 (Offline interop with other golf/shader tools); 2 of
+the phase's 5 items land in this release.
+
+### Added
+
+- Phase 21: an "Import exclude list..." button next to the "Protected
+  names" field reads a Shader Minifier–style exclude-name list
+  (plain text, one identifier per line) and merges any new names into
+  the existing protected-names field, so an existing exclude list
+  doesn't need retyping. Blank lines and `//`/`#`-prefixed comment
+  lines in the file are skipped; names already in the field are not
+  duplicated.
+- Phase 21: three one-click export wrappers for the golfed output —
+  "Copy as Shadertoy", "Copy as Bonzomatic", and "Copy as bare
+  main()" — in the Golfed panel toolbar and the command palette, each
+  copying a fixed local string template straight to the clipboard.
+  The Shadertoy and Bonzomatic variants are the golfed text as-is
+  (both tools auto-supply the same uniform set and call `mainImage`
+  themselves); the bare `void main()` variant rewrites the shader into
+  a standalone fragment shader that declares its own uniforms and
+  calls `mainImage` from a plain `void main()`, for pasting into raw
+  GLSL sandboxes that don't understand the Shadertoy API. None of this
+  talks to any of those tools over a network — every wrapper is a
+  local string transform, per the Offline-First Isolation rule.
+
+## [2.1.0] - 2026-07-20
+
+Closes out Phase 20 (Display correctness & accessibility) in full.
+
+### Added
+
+- Phase 20: minimal Windows UI Automation support. Title-bar
+  minimize/maximize/close buttons, themed checkboxes, and icon
+  buttons now register a name, `Button`/`CheckBox` control type, and
+  screen-space bounding rect with a new UIA provider bridge
+  (`platform/accessibility.cpp`), so a screen reader such as Narrator
+  can announce them. This is a "screen-reader-nameable" baseline, not
+  full keyboard-driven accessibility: elements report
+  `IsKeyboardFocusable = false` and don't support `Invoke`/`Toggle`
+  activation, since Dear ImGui's immediate-mode click handling can't
+  be driven from a UIA callback without a much larger restructuring.
+- Phase 20: `scripts/check_contrast.py`, a WCAG AA relative-luminance
+  contrast checker re-running the same method used in Phase 10.1/10.8
+  (previously run ad hoc, not checked into the repo), now parsing
+  `theme_tokens.h` directly. Re-confirms all four `text.primary`/
+  `text.secondary` vs `bg.panel`/`bg.app` pairs pass AA (12.59:1,
+  13.36:1, 5.87:1, 6.22:1). The colorblind-safe status indicators
+  (Phase 20.3) reuse the same color tokens and only change shape, so
+  there's no separate colorblind token set to check independently —
+  the script documents that explicitly rather than silently skipping
+  the second pass.
+- Phase 20: colorblind-safe status indicators. A new "Colorblind-safe
+  status indicators" checkbox in the Appearance tab (off by default)
+  makes the equivalence-check and shader-compile status dots
+  shape-differentiated — filled circle for Ok, triangle for Warning,
+  square for Error — instead of the same circle for all three. The
+  underlying `status.ok`/`status.warning`/`status.error` color tokens
+  are unchanged; only the shape changes when the toggle is on.
+- Phase 20: user-adjustable base UI font size (13–28pt), set from a new
+  "Appearance" tab next to About/Keyboard Shortcuts. Combines
+  multiplicatively with the per-monitor DPI scale (also Phase 20) into
+  a single style/font scale factor, so panel paddings and line-heights
+  grow proportionally with the text rather than the glyphs alone.
+  Persisted app-wide (not per-tab) as `ui_font_size` in the existing
+  `last_session.ushaderworkspace` file, applied immediately at startup
+  ahead of the tab-restore confirmation.
+- Phase 20: correct per-monitor DPI handling. The window is now created
+  with `SDL_WINDOW_HIGH_PIXEL_DENSITY`; ImGui's style metrics and
+  `FontGlobalScale` are recomputed from the per-monitor content scale
+  at startup and again whenever the window is dragged to a display with
+  a different scale factor (`SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED`),
+  via a new `apply_dpi_scale()` in `ui/theme.cpp`.
+
+### Changed
+
+- Closed out the Phase 19 "Optional PDF variant" roadmap item: no
+  embeddable, offline-capable HTML-to-PDF renderer could be vendored
+  without either violating Offline-First Isolation (wkhtmltopdf's
+  bundled, unmaintained QtWebKit) or being disproportionate to a single
+  optional export format (a full Chromium/CEF embed; WeasyPrint's
+  native dependency stack has no lightweight vendorable Windows
+  build). Per the roadmap's own documented fallback, the bullet is
+  dropped in favor of documenting "print the HTML report from any
+  browser (`Ctrl+P` → Save as PDF)" in `README.md`. No code changes;
+  the session-report feature (HTML only) is unchanged.
+
 ## [2.0.1] - 2026-07-20
 
 ### Added
