@@ -4,6 +4,22 @@ All notable changes to µShader are documented in this file.
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-07-20
+
+Continues Phase 22 (WinUI 3 migration: architecture decision &
+feasibility spike); 2 of 8 items done.
+
+### Added
+
+- Phase 22: pinned the **Windows App SDK channel** to **2.2.0**
+  (Stable, released 2026-06-09) — the latest non-preview release at
+  decision time, confirmed against Microsoft's release-channels page
+  (supersedes 2.1.3, the prior latest stable). Deployment mode is
+  self-contained (runtime packaged with the app, no separate system
+  install), matching Offline-First Isolation and the existing Inno
+  Setup "no separate runtime install" user experience. No runtime code
+  changes in this release — decision-only, per Phase 22's scope.
+
 ## [2.5.0] - 2026-07-20
 
 Starts Phase 22 (WinUI 3 migration: architecture decision & feasibility

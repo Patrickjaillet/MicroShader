@@ -1301,11 +1301,13 @@ not thrash.
       self-contained-deployed. C++/WinRT keeps `main.cpp` calling into
       `include/ushader/golf_core.h` exactly as today; only the UI shell
       above it changes.
-- [ ] **Windows App SDK channel**: pin to the latest stable (non-
+- [x] **Windows App SDK channel**: pin to the latest stable (non-
       preview) Windows App SDK release available at implementation
-      time, self-contained deployment (the runtime is packaged with
-      the app, not a separate system install) — required by Offline-
-      First Isolation and by the existing "no separate runtime install"
+      time — **2.2.0** (released 2026-06-09, Stable channel; supersedes
+      2.1.3 as the latest non-preview release as of this decision) —
+      self-contained deployment (the runtime is packaged with the app,
+      not a separate system install) — required by Offline-First
+      Isolation and by the existing "no separate runtime install"
       user experience the Inno Setup installer already provides.
 - [ ] **Rendering strategy: ANGLE**, not a GLSL→HLSL/Direct3D11
       rewrite. WinUI 3's `SwapChainPanel` has no native OpenGL context
