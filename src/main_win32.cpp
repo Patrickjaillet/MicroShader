@@ -20,6 +20,7 @@
 #include "ui/win32_appearance_panel.h"
 #include "ui/win32_appearance_settings.h"
 #include "ui/win32_about_panel.h"
+#include "ui/win32_tool_button.h"
 #include "ui/theme_tokens.h"
 #include "ui/glsl_format.h"
 #include "ui/golf_trace.h"
@@ -55,11 +56,12 @@ namespace
     constexpr int kGolfedTabIndex = 1;
     constexpr int kDiffTabIndex = 2;
     constexpr int kTraceTabIndex = 3;
-    constexpr int kControlsTabIndex = 4;
-    constexpr int kStatsTabIndex = 5;
-    constexpr int kViewportTabIndex = 6;
-    constexpr int kAppearanceTabIndex = 7;
-    constexpr int kAboutTabIndex = 8;
+    constexpr int kStatsTabIndex = 4;
+    constexpr int kViewportTabIndex = 5;
+    constexpr int kAppearanceTabIndex = 6;
+    constexpr int kAboutTabIndex = 7;
+    constexpr int kInspectorWidth = 300;
+    constexpr int kRunGolfButtonHeight = 32;
 
     const wchar_t kGlslFilter[] = L"GLSL shaders (*.glsl)\0*.glsl\0All files (*.*)\0*.*\0";
 
@@ -96,6 +98,8 @@ namespace
     Win32AppearancePanel g_appearance_panel;
     bool g_appearance_slider_dragging = false;
     Win32AboutPanel g_about_panel;
+    Win32ToolButton g_run_golf_button;
+    Win32ToolButton g_formatted_view_button;
     WglViewportHost g_viewport;
     ShaderRunner g_shader_runner;
     ShaderRunner g_golfed_runner;
@@ -202,27 +206,39 @@ namespace
             content_height = 0;
         }
 
-        int source_width = window_width;
+        bool show_inspector = g_tab_strip.active_index() != kViewportTabIndex;
+        int inspector_width = show_inspector ? kInspectorWidth : 0;
+        int main_width = window_width - inspector_width;
+        if (main_width < 0)
+        {
+            main_width = 0;
+        }
+
+        int source_width = main_width;
         if (minimap_should_render(g_source_editor.line_count(), g_minimap_settings))
         {
             source_width -= static_cast<int>(g_minimap_settings.width);
         }
         g_source_editor.layout(0, content_top, source_width, content_height);
 
-        int golfed_width = window_width;
+        int golfed_width = main_width;
         if (minimap_should_render(g_golfed_editor.line_count(), g_minimap_settings))
         {
             golfed_width -= static_cast<int>(g_minimap_settings.width);
         }
         g_golfed_editor.layout(0, content_top, golfed_width, content_height);
 
-        g_diff_view.layout(0, content_top, window_width, content_height);
-        g_trace_view.layout(0, content_top, window_width, content_height);
-        g_golf_controls.layout(0, content_top, window_width, content_height);
-        g_stats_panel.layout(0, content_top, window_width, content_height);
-        g_appearance_panel.layout(0, content_top, window_width, content_height);
-        g_about_panel.layout(0, content_top, window_width, content_height);
+        g_diff_view.layout(0, content_top, main_width, content_height);
+        g_trace_view.layout(0, content_top, main_width, content_height);
+        g_stats_panel.layout(0, content_top, main_width, content_height);
+        g_appearance_panel.layout(0, content_top, main_width, content_height);
+        g_about_panel.layout(0, content_top, main_width, content_height);
         g_command_palette.layout(window_width, window_height);
+
+        g_golf_controls.layout(window_width - kInspectorWidth, content_top + kRunGolfButtonHeight + 8,
+            kInspectorWidth, content_height - kRunGolfButtonHeight - 8);
+        g_run_golf_button.layout(window_width - kInspectorWidth + 8, content_top + 8, kInspectorWidth - 16, kRunGolfButtonHeight - 8);
+        g_formatted_view_button.layout(main_width - 132, content_top + 8, 120, 24);
 
         if (g_viewport.hwnd() != nullptr)
         {
@@ -260,12 +276,15 @@ namespace
         int content_height = client_rect.bottom - content_top;
         int window_width = client_rect.right;
 
+        bool show_inspector = g_tab_strip.active_index() != kViewportTabIndex;
+        int main_width = show_inspector ? window_width - kInspectorWidth : window_width;
+
         if (g_tab_strip.active_index() == kSourceTabIndex)
         {
             g_source_editor.paint(g_render_target, g_brushes);
             if (minimap_should_render(g_source_editor.line_count(), g_minimap_settings))
             {
-                float minimap_x = static_cast<float>(window_width) - g_minimap_settings.width;
+                float minimap_x = static_cast<float>(main_width) - g_minimap_settings.width;
                 paint_minimap(g_render_target, g_minimap_brush, g_brushes, g_source_editor.all_lines(),
                     minimap_x, static_cast<float>(content_top), g_minimap_settings.width, static_cast<float>(content_height));
             }
@@ -275,10 +294,13 @@ namespace
             g_golfed_editor.paint(g_render_target, g_brushes);
             if (minimap_should_render(g_golfed_editor.line_count(), g_minimap_settings))
             {
-                float minimap_x = static_cast<float>(window_width) - g_minimap_settings.width;
+                float minimap_x = static_cast<float>(main_width) - g_minimap_settings.width;
                 paint_minimap(g_render_target, g_minimap_brush, g_brushes, g_golfed_editor.all_lines(),
                     minimap_x, static_cast<float>(content_top), g_minimap_settings.width, static_cast<float>(content_height));
             }
+            g_formatted_view_button.paint(g_render_target, g_brushes, L"Formatted view", g_formatted_view);
+            accessibility_register_toggle("Formatted view", AccessibleRole::CheckBox,
+                static_cast<float>(main_width - 132), static_cast<float>(content_top + 8), 120.0f, 24.0f, true, g_formatted_view);
         }
         else if (g_tab_strip.active_index() == kDiffTabIndex)
         {
@@ -287,10 +309,6 @@ namespace
         else if (g_tab_strip.active_index() == kTraceTabIndex)
         {
             g_trace_view.paint(g_render_target, g_brushes);
-        }
-        else if (g_tab_strip.active_index() == kControlsTabIndex)
-        {
-            g_golf_controls.paint(g_render_target, g_brushes);
         }
         else if (g_tab_strip.active_index() == kStatsTabIndex)
         {
@@ -303,6 +321,18 @@ namespace
         else if (g_tab_strip.active_index() == kAboutTabIndex)
         {
             g_about_panel.paint(g_render_target, g_brushes);
+        }
+
+        if (show_inspector)
+        {
+            D2D1_RECT_F inspector_bg = D2D1::RectF(static_cast<float>(window_width - kInspectorWidth), static_cast<float>(content_top),
+                static_cast<float>(window_width), static_cast<float>(client_rect.bottom));
+            g_render_target->FillRectangle(inspector_bg, g_brushes.bg_panel);
+            g_run_golf_button.paint(g_render_target, g_brushes, L"Golf", true);
+            accessibility_register("Golf", AccessibleRole::Button,
+                static_cast<float>(window_width - kInspectorWidth + 8), static_cast<float>(content_top + 8),
+                static_cast<float>(kInspectorWidth - 16), static_cast<float>(kRunGolfButtonHeight - 8), true);
+            g_golf_controls.paint(g_render_target, g_brushes);
         }
 
         g_title_bar.paint(g_render_target, g_brushes, g_icons, title.c_str());
@@ -336,6 +366,8 @@ namespace
         g_stats_panel.destroy();
         g_appearance_panel.destroy();
         g_about_panel.destroy();
+        g_run_golf_button.destroy();
+        g_formatted_view_button.destroy();
 
         g_tab_strip.create(g_render_target, g_dwrite_factory);
         g_source_editor.create(g_render_target, g_dwrite_factory, false);
@@ -347,6 +379,8 @@ namespace
         g_stats_panel.create(g_render_target, g_dwrite_factory);
         g_appearance_panel.create(g_render_target, g_dwrite_factory);
         g_about_panel.create(g_render_target, g_dwrite_factory);
+        g_run_golf_button.create(g_render_target, g_dwrite_factory);
+        g_formatted_view_button.create(g_render_target, g_dwrite_factory);
 
         layout_chrome(hwnd);
     }
@@ -443,7 +477,6 @@ namespace
             {"Switch to tab: Golfed", [hwnd]() { switch_tab(hwnd, kGolfedTabIndex); }},
             {"Switch to tab: Diff", [hwnd]() { switch_tab(hwnd, kDiffTabIndex); }},
             {"Switch to tab: Trace", [hwnd]() { switch_tab(hwnd, kTraceTabIndex); }},
-            {"Switch to tab: Controls", [hwnd]() { switch_tab(hwnd, kControlsTabIndex); }},
             {"Switch to tab: Stats", [hwnd]() { switch_tab(hwnd, kStatsTabIndex); }},
             {"Switch to tab: Viewport", [hwnd]() { switch_tab(hwnd, kViewportTabIndex); }},
             {"Switch to tab: Appearance", [hwnd]() { switch_tab(hwnd, kAppearanceTabIndex); }},
@@ -652,8 +685,22 @@ namespace
                 g_command_palette.on_mouse_down(x, y);
                 return 0;
             }
+            bool show_inspector = g_tab_strip.active_index() != kViewportTabIndex;
             int tab_hit = g_tab_strip.hit_test(x, y);
-            if (tab_hit >= 0)
+            if (show_inspector && g_run_golf_button.contains(x, y))
+            {
+                SetFocus(hwnd);
+                recompile_from_editor();
+                layout_chrome(hwnd);
+            }
+            else if (g_tab_strip.active_index() == kGolfedTabIndex && g_formatted_view_button.contains(x, y))
+            {
+                SetFocus(hwnd);
+                g_formatted_view = !g_formatted_view;
+                refresh_golfed_view();
+                layout_chrome(hwnd);
+            }
+            else if (tab_hit >= 0)
             {
                 g_tab_strip.switch_to(tab_hit);
                 layout_chrome(hwnd);
@@ -672,7 +719,7 @@ namespace
                 SetFocus(hwnd);
                 g_trace_view.on_mouse_down(x, y);
             }
-            else if (g_tab_strip.active_index() == kControlsTabIndex && g_golf_controls.contains(x, y))
+            else if (show_inspector && g_golf_controls.contains(x, y))
             {
                 SetFocus(hwnd);
                 g_golf_controls.on_mouse_down(x, y);
@@ -756,7 +803,7 @@ namespace
                     return 0;
                 }
             }
-            if (g_tab_strip.active_index() == kControlsTabIndex)
+            if (g_tab_strip.active_index() != kViewportTabIndex)
             {
                 if (g_golf_controls.on_char(static_cast<wchar_t>(wparam)))
                 {
@@ -837,7 +884,7 @@ namespace
                     return 0;
                 }
             }
-            if (g_tab_strip.active_index() == kControlsTabIndex)
+            if (g_tab_strip.active_index() != kViewportTabIndex)
             {
                 if (g_golf_controls.on_key_down(wparam))
                 {
@@ -972,6 +1019,14 @@ int main()
     {
         return 1;
     }
+    if (!g_run_golf_button.create(g_render_target, g_dwrite_factory))
+    {
+        return 1;
+    }
+    if (!g_formatted_view_button.create(g_render_target, g_dwrite_factory))
+    {
+        return 1;
+    }
     g_source_editor.set_text_utf8(kDefaultShaderSource);
     g_icons.load(exe_directory() + L"\\assets\\icons\\ui");
 
@@ -1042,6 +1097,8 @@ int main()
     g_stats_panel.destroy();
     g_appearance_panel.destroy();
     g_about_panel.destroy();
+    g_run_golf_button.destroy();
+    g_formatted_view_button.destroy();
     accessibility_shutdown();
     g_icons.release();
     release_device_resources();

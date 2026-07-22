@@ -4,6 +4,40 @@ All notable changes to µShader are documented in this file.
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-07-22
+
+UX feedback fix: the Controls panel becomes a persistent right-side
+inspector instead of a full-screen tab, and two actions that were
+previously keyboard/command-palette-only get visible buttons.
+
+### Changed
+
+- The "Controls" tab is removed; `Win32GolfControls` now renders as a
+  fixed-width (300px) inspector docked to the right edge, visible on
+  every tab except Viewport (which keeps the full window width,
+  needed for Compare mode's split render). All other tab content
+  (editors, Diff, Trace, Stats, Appearance, About) narrows to make
+  room; the Source/Golfed minimap repositions to stay left of the
+  inspector instead of the raw window edge.
+- The pass-checkbox list switched from two columns to one: the
+  two-column layout was sized for a full-width tab and truncated
+  labels like "Common subexpressions" once squeezed into the 300px
+  inspector. Single column uses the inspector's full available height
+  instead, with no truncation.
+
+### Added
+
+- A "Golf" button at the top of the inspector runs the same
+  recompile action as `F5` or the command palette's "Run golf" entry
+  — previously keyboard/palette-only.
+- A "Formatted view" toggle button in the top-right of the Golfed
+  tab's content area, mirroring the existing `Ctrl+Shift+F` chord —
+  previously also keyboard/palette-only.
+- Both new buttons (`src/ui/win32_tool_button.h/.cpp`, a small
+  reusable owner-drawn button) are registered for UI Automation like
+  every other Phase 26 control, verified live with the same
+  `System.Windows.Automation` client used throughout that phase.
+
 ## [3.0.0] - 2026-07-22
 
 **Breaking change**: µShader's UI framework is now native Win32 +

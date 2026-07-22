@@ -58,5 +58,5 @@ private:
     RECT aggressive_rect() const;
     RECT preset_rect() const;
     RECT field_rect() const;
-    RECT checkbox_hit_rect(int index, bool second_column) const;
+    RECT checkbox_hit_rect(int index) const;
 };

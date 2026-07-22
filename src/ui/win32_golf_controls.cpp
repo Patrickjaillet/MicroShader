@@ -83,24 +83,26 @@ RECT Win32GolfControls::aggressive_rect() const
     return RECT{ origin_x + 8, top, origin_x + 8 + static_cast<LONG>(kCheckboxSize), top + static_cast<LONG>(kCheckboxSize) };
 }
 
-RECT Win32GolfControls::checkbox_hit_rect(int index, bool second_column) const
+RECT Win32GolfControls::checkbox_hit_rect(int index) const
 {
-    LONG col_x = origin_x + (second_column ? width_px / 2 : 8);
+    
     LONG row_top = origin_y + 12 + static_cast<LONG>(kRowHeight) + 24 + static_cast<LONG>(index) * static_cast<LONG>(kRowHeight);
-    return RECT{ col_x, row_top, col_x + static_cast<LONG>(kCheckboxSize), row_top + static_cast<LONG>(kCheckboxSize) };
+    return RECT{ origin_x + 8, row_top, origin_x + 8 + static_cast<LONG>(kCheckboxSize), row_top + static_cast<LONG>(kCheckboxSize) };
 }
 
 RECT Win32GolfControls::field_rect() const
 {
-    LONG top = origin_y + 12 + static_cast<LONG>(kRowHeight) + 24 + 8 * static_cast<LONG>(kRowHeight) + 16;
-    return RECT{ origin_x + 8, top, origin_x + 8 + 320, top + static_cast<LONG>(kRowHeight) };
+    LONG top = origin_y + 12 + static_cast<LONG>(kRowHeight) + 24 + 16 * static_cast<LONG>(kRowHeight) + 16;
+    LONG right_margin = width_px > 24 ? width_px - 16 : 8;
+    return RECT{ origin_x + 8, top, origin_x + right_margin, top + static_cast<LONG>(kRowHeight) };
 }
 
 RECT Win32GolfControls::preset_rect() const
 {
     RECT field = field_rect();
     LONG top = field.bottom + 12;
-    return RECT{ origin_x + 8, top, origin_x + 8 + 240, top + static_cast<LONG>(kRowHeight) };
+    LONG right_margin = width_px > 24 ? width_px - 16 : 8;
+    return RECT{ origin_x + 8, top, origin_x + right_margin, top + static_cast<LONG>(kRowHeight) };
 }
 
 bool Win32GolfControls::on_mouse_down(int client_x, int client_y)
@@ -116,20 +118,13 @@ bool Win32GolfControls::on_mouse_down(int client_x, int client_y)
     }
 
     std::array<CheckboxEntry, 16> entries = checkbox_entries(golf_toggles);
-    for (int i = 0; golf_toggles.aggressive && i < 8; ++i)
+    for (int i = 0; golf_toggles.aggressive && i < 16; ++i)
     {
-        RECT box = checkbox_hit_rect(i, false);
-        RECT hit{ box.left - 4, box.top - 4, box.left + 170, box.bottom + 4 };
+        RECT box = checkbox_hit_rect(i);
+        RECT hit{ box.left - 4, box.top - 4, origin_x + width_px - 8, box.bottom + 4 };
         if (PtInRect(&hit, pt))
         {
             *entries[static_cast<size_t>(i)].value = !*entries[static_cast<size_t>(i)].value;
-            return true;
-        }
-        RECT box2 = checkbox_hit_rect(i, true);
-        RECT hit2{ box2.left - 4, box2.top - 4, box2.left + 190, box2.bottom + 4 };
-        if (PtInRect(&hit2, pt))
-        {
-            *entries[static_cast<size_t>(i + 8)].value = !*entries[static_cast<size_t>(i + 8)].value;
             return true;
         }
     }
@@ -213,7 +208,8 @@ void Win32GolfControls::paint(ID2D1RenderTarget* render_target, const ThemeBrush
             render_target->FillRectangle(fill_rect, dynamic_brush);
         }
 
-        D2D1_RECT_F label_rect = D2D1::RectF(box_rect.right + 6.0f, box_rect.top - 5.0f, box_rect.right + 200.0f, box_rect.bottom + 5.0f);
+        D2D1_RECT_F label_rect = D2D1::RectF(box_rect.right + 6.0f, box_rect.top - 5.0f,
+            static_cast<float>(origin_x + width_px) - 8.0f, box_rect.bottom + 5.0f);
         dynamic_brush->SetColor(D2D1::ColorF(tokens::text_primary.x, tokens::text_primary.y, tokens::text_primary.z, alpha));
         render_target->DrawText(label, static_cast<UINT32>(wcslen(label)), text_format, label_rect, dynamic_brush);
 
@@ -232,10 +228,9 @@ void Win32GolfControls::paint(ID2D1RenderTarget* render_target, const ThemeBrush
 
     std::array<CheckboxEntry, 16> entries = checkbox_entries(const_cast<GolfPassToggles&>(golf_toggles));
     float disabled_alpha = golf_toggles.aggressive ? 1.0f : 0.4f;
-    for (int i = 0; i < 8; ++i)
+    for (int i = 0; i < 16; ++i)
     {
-        draw_checkbox(checkbox_hit_rect(i, false), *entries[static_cast<size_t>(i)].value, entries[static_cast<size_t>(i)].label, disabled_alpha);
-        draw_checkbox(checkbox_hit_rect(i, true), *entries[static_cast<size_t>(i + 8)].value, entries[static_cast<size_t>(i + 8)].label, disabled_alpha);
+        draw_checkbox(checkbox_hit_rect(i), *entries[static_cast<size_t>(i)].value, entries[static_cast<size_t>(i)].label, disabled_alpha);
     }
 
     RECT field = field_rect();

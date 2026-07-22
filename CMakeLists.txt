@@ -192,6 +192,7 @@ add_executable(ushader
     src/ui/win32_appearance_settings.cpp
     src/ui/win32_appearance_panel.cpp
     src/ui/win32_about_panel.cpp
+    src/ui/win32_tool_button.cpp
     src/ui/golf_options_convert.cpp
     src/ui/budget_presets.cpp
     src/ui/unified_diff.cpp

@@ -24,7 +24,7 @@ public:
     void paint(ID2D1RenderTarget* render_target, const ThemeBrushes& brushes) const;
 
     static constexpr float kHeight = 32.0f;
-    static constexpr int kTabCount = 9;
+    static constexpr int kTabCount = 8;
     int origin_y() const { return top; }
 
 private:
