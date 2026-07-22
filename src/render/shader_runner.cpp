@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <vector>
 
+#include "framebuffer.h"
 #include "gl_functions.h"
+#include "../platform/screenshot.h"
 
 namespace
 {
@@ -142,4 +144,102 @@ void ShaderRunner::destroy()
         glDeleteProgram(program);
         program = 0;
     }
+}
+
+namespace
+{
+    ShaderUniforms make_equivalence_uniforms(float time, float resolution_x, float resolution_y)
+    {
+        ShaderUniforms uniforms{};
+        uniforms.time = time;
+        uniforms.resolution_x = resolution_x;
+        uniforms.resolution_y = resolution_y;
+        uniforms.mouse_x = 0.0f;
+        uniforms.mouse_y = 0.0f;
+        uniforms.mouse_click_x = 0.0f;
+        uniforms.mouse_click_y = 0.0f;
+        uniforms.date_year = 2026.0f;
+        uniforms.date_month = 1.0f;
+        uniforms.date_day = 1.0f;
+        uniforms.date_seconds = 0.0f;
+        uniforms.frame = 0;
+        uniforms.frame_rate = 60.0f;
+        return uniforms;
+    }
+
+    void render_sample_into(const ShaderRunner& runner, const ShaderUniforms& uniforms,
+        OffscreenFramebuffer& fb, int window_pixel_w, int window_pixel_h)
+    {
+        fb.bind();
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        runner.draw(uniforms);
+        fb.unbind(window_pixel_w, window_pixel_h);
+    }
+}
+
+bool run_equivalence_samples(
+    const ShaderRunner& source_runner,
+    const ShaderRunner& golfed_runner,
+    OffscreenFramebuffer& source_fb,
+    OffscreenFramebuffer& golfed_fb,
+    const EquivalenceSampleConfig& config,
+    int window_pixel_w,
+    int window_pixel_h,
+    const EquivalenceSampleCallback& on_sample)
+{
+    int width = static_cast<int>(config.resolution_x);
+    int height = static_cast<int>(config.resolution_y);
+    if (!source_fb.resize(width, height) || !golfed_fb.resize(width, height))
+    {
+        return false;
+    }
+
+    for (float time : config.sample_times)
+    {
+        ShaderUniforms uniforms = make_equivalence_uniforms(time, config.resolution_x, config.resolution_y);
+        render_sample_into(source_runner, uniforms, source_fb, window_pixel_w, window_pixel_h);
+        render_sample_into(golfed_runner, uniforms, golfed_fb, window_pixel_w, window_pixel_h);
+
+        if (on_sample)
+        {
+            on_sample(time, source_fb, golfed_fb);
+        }
+    }
+
+    return true;
+}
+
+EquivalenceRunResult run_equivalence_check(
+    const ShaderRunner& source_runner,
+    const ShaderRunner& golfed_runner,
+    OffscreenFramebuffer& source_fb,
+    OffscreenFramebuffer& golfed_fb,
+    const EquivalenceSampleConfig& config,
+    int window_pixel_w,
+    int window_pixel_h)
+{
+    EquivalenceRunResult result;
+    result.samples_total = static_cast<int>(config.sample_times.size());
+
+    result.valid = run_equivalence_samples(
+        source_runner, golfed_runner, source_fb, golfed_fb, config,
+        window_pixel_w, window_pixel_h,
+        [&](float time, const OffscreenFramebuffer& sample_source_fb, const OffscreenFramebuffer& sample_golfed_fb)
+        {
+            (void)time;
+            FramebufferDiffResult diff;
+            if (!diff_framebuffers(sample_source_fb, sample_golfed_fb, diff))
+            {
+                result.samples_failed += 1;
+                return;
+            }
+            if (!framebuffer_diff_within_tolerance(diff, config.max_delta_tolerance))
+            {
+                result.samples_failed += 1;
+            }
+            result.worst_max_delta = diff.max_delta > result.worst_max_delta ? diff.max_delta : result.worst_max_delta;
+        });
+
+    return result;
 }

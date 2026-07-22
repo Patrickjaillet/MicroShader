@@ -51,6 +51,11 @@ typedef struct {
     uintptr_t common_subexpressions_eliminated;
 } UshaderGolfStats;
 
+typedef struct {
+    uintptr_t raw_bytes;
+    uintptr_t deflate_bytes;
+} UshaderBudgetResult;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -61,6 +66,14 @@ char *ushader_golf(const char *source,
                    UshaderGolfStats *out_stats);
 
 void ushader_free_string(char *s);
+
+UshaderBudgetResult ushader_estimate_budget(const char *golfed);
+
+char *ushader_golf_traced(const char *source,
+                          UshaderGolfOptions options,
+                          const char *protected_names,
+                          UshaderGolfStats *out_stats,
+                          char **out_trace_json);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "aggressive": true,
+  "eliminate_dead_locals": true,
+  "eliminate_dead_stores": true,
+  "fold_constants": false,
+  "reduce_constant_vectors": true,
+  "strip_trailing_void_return": false,
+  "compound_assignments": true,
+  "increment_decrement": false,
+  "ternary_from_if_else": true,
+  "merge_declarations": false,
+  "strip_redundant_braces": true,
+  "strip_redundant_parens": false,
+  "strip_duplicate_precision": true,
+  "eliminate_dead_functions": false,
+  "inline_single_call_functions": true,
+  "simplify_algebraic_identities": false,
+  "eliminate_common_subexpressions": true,
+  "protected_names": "iTime,iResolution,mainImage",
+  "budget_preset": "JS13K-style 13KB"
+}

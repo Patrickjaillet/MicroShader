@@ -1,10 +1,10 @@
 #define MyAppName "uShader"
-#define MyAppPublisher "SANDEFJORD DEVELOPMENT"
-#define MyAppURL "https://github.com/Patrickjaillet/MicroShader"
+#define MyAppPublisher "SANDEFJORD DEVELOPMENT (Patrick JAILLET)"
+#define MyAppURL "https://patrickjaillet.github.io/sandefjord-software"
 #define MyAppExeName "ushader.exe"
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.0.0.0"
+  #define MyAppVersion "1.6.0.18"
 #endif
 
 [Setup]
@@ -34,10 +34,8 @@ LicenseFile=..\LICENSE
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: "..\build\ushader.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\build\ffmpeg.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\build\assets\fonts\*"; DestDir: "{app}\assets\fonts"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\build\assets\branding\*"; DestDir: "{app}\assets\branding"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\build\Release\ushader.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\build\Release\assets\icons\ui\*"; DestDir: "{app}\assets\icons\ui"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

@@ -1,7 +1,5 @@
 #pragma once
 
-#include <string>
-
 #include "ushader/golf_core.h"
 
 struct GolfPassToggles
@@ -26,4 +24,3 @@ struct GolfPassToggles
 };
 
 UshaderGolfOptions to_golf_options(const GolfPassToggles& toggles);
-void render_golf_controls(GolfPassToggles& toggles, std::string& protected_names);

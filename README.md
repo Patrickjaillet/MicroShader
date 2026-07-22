@@ -4,12 +4,14 @@ Native Windows 10/11 GLSL shader golfer — minify a Shadertoy-style
 `mainImage` fragment shader and preview the result live.
 
 µShader pairs a tokenizer-based Rust minification engine with a
-native SDL3 + OpenGL + Dear ImGui application shell: paste a shader,
-golf it, and immediately verify it renders identically in the live
-viewport. The UI is a dark, Adobe Premiere Pro–style editing
-workspace with a custom borderless window frame.
+native Win32 + OpenGL (WGL) + Direct2D/DirectWrite/GDI+ application
+shell — no Dear ImGui, no SDL3, nothing beyond APIs already in-box on
+every Windows 10/11 edition, including Windows 10 LTSC 2019: paste a
+shader, golf it, and immediately verify it renders identically in the
+live viewport. The UI is a dark, tabbed editing workspace with a
+custom borderless window frame.
 
-![uShader screenshot: Source, Golfed, and Viewport panels](docs/screenshot.png)
+![uShader screenshot: Source, Golfed, and other panel tabs](docs/screenshot.png)
 
 ## Features
 
@@ -24,23 +26,15 @@ workspace with a custom borderless window frame.
   Rust unit tests.
 - **Live viewport** with the standard Shadertoy uniform set (`iTime`,
   `iResolution`, `iMouse`, `iDate`, `iFrame`, `iFrameRate`), and a
-  Compare mode that renders the source and golfed shaders side by
-  side to confirm golfing didn't change the output.
+  Compare mode (`Ctrl+Shift+C`) that renders the source and golfed
+  shaders side by side to confirm golfing didn't change the output.
 - **GLSL-aware text editor** (syntax highlighting, error-line
   highlighting on compile failure) for both the Source and Golfed
-  panels, with a "Formatted view" toggle for reading the golfed
-  one-liner across multiple lines.
+  panels, with a "Formatted view" toggle (`Ctrl+Shift+F`) for reading
+  the golfed one-liner across multiple lines.
 - **Reduction stats**: char/byte counts, reduction percentage,
-  per-pass counters, and size-budget badges (280/512/1024 bytes).
-- **Import/export**: open and save `.glsl` files, copy the golfed
-  output to the clipboard, export in Shadertoy format, and capture
-  the viewport to a PNG screenshot.
-- **Golfing profiles**: save the current pass toggles, protected-names
-  list, and budget preset to a `.ushaderprofile` file, and load one
-  back later, via "Save profile…" / "Load profile…" in the golf
-  controls panel. Three built-in read-only profiles (`Maximum`,
-  `Safe`, `None`) are also available from the same "Profile" combo,
-  and the last profile path used is remembered across restarts.
+  per-pass counters, and size-budget badges (280/512/1024 bytes) via
+  a click-to-cycle budget-preset selector.
 - **Pass-by-pass trace**: a "Trace" tab lists every golfing pass
   considered on the last run, with its change count; expanding a pass
   shows a side-by-side before/after view of that one pass's own delta,
@@ -50,46 +44,42 @@ workspace with a custom borderless window frame.
 - **Diff panel**: tabbed alongside Trace, an inline unified diff shows
   exactly what changed between Source and Golfed as a whole, with
   removed text struck through in red and added text in green.
-- **Viewport recording**: capture the running shader to an animated
-  GIF, or to MP4/WebM via a bundled `ffmpeg.exe` — no separate
-  install required.
-- **Multi-document workspace**: work on several shaders at once from a
-  tab strip above the dock, one tab per open `.glsl` file. Each tab
-  keeps its own editor buffer, golf result, pass toggles,
-  protected-names list and budget preset, and switching tabs never
-  re-runs the golf engine on the tab you left. A `+` button and a
-  `File` menu (`New tab`, `Open`, `Save`, `Save as…`, `Close tab`)
-  manage the open set; a dot on a tab marks unsaved changes, and
-  closing a dirty tab or exiting with unsaved shaders asks before
-  discarding.
-- **Session persistence**: on exit the open files, active tab, per-tab
-  pass/profile state and panel layout are saved to
-  `%APPDATA%\ushader\last_session.ushaderworkspace`. On the next launch
-  a "Restore last session?" prompt offers to reopen exactly where you
-  left off — files are never reopened without your confirmation.
-- **Command palette** (`Ctrl+Shift+P`): a fuzzy-searchable list of
-  every action in the app — run golf, toggle any pass, load/save a
-  profile, switch tabs, toggle Compare mode, export, and more.
-- **Rebindable keyboard shortcuts**: the command palette, new tab,
-  open, save, and close-tab shortcuts can be rebound from the
-  "Keyboard Shortcuts" tab next to "About", persisted to
+- **Open/Save and drag-and-drop**: open or save a single `.glsl` file
+  (`Ctrl+O` / `Ctrl+S` by default, rebindable), or drag one onto the
+  main window; a "Recent Files" list in the command palette tracks
+  previously opened/saved shaders, persisted to
+  `%APPDATA%\ushader\recent_files.json`, and prunes entries pointing
+  at files that no longer exist.
+- **Command palette** (`Ctrl+Shift+P` by default): a fuzzy-searchable
+  list of every action in the app — run golf, switch tabs, toggle
+  Formatted/Compare view, open/save, and recent files.
+- **Rebindable keyboard shortcuts** for the command palette, open,
+  save, and new-shader chords, persisted to
   `%APPDATA%\ushader\keybindings.json`.
-- **Minimap**: an optional compact colored overview of the Source and
-  Golfed editors, syntax-colored the same way as the editors
-  themselves, for jumping around longer shaders.
-- **Local session reports**: "Export report…" (File menu or command
-  palette) writes a single self-contained HTML file — source and
-  golfed code (syntax-highlighted), size/budget badges, per-pass
-  counters, and the equivalence-check result, with everything inlined
-  and no external references, so it opens correctly offline. An
-  "Include screenshot in report" checkbox (off by default) embeds the
-  current viewport as a base64 image.
-- **Drag-and-drop & Recent Files**: drop one or more `.glsl` files
-  onto the main window to open each as a new tab. A "Recent Files"
-  submenu under `File` lists previously opened/saved shaders (from
-  the dialog, drag-and-drop, or a prior Recent Files entry),
-  persisted to `%APPDATA%\ushader\recent_files.json`; entries pointing
-  at files that no longer exist are pruned automatically.
+- **Minimap**: a compact colored overview of the Source and Golfed
+  editors, syntax-colored the same way as the editors themselves, for
+  jumping around longer shaders.
+- **Display correctness & accessibility**: a 13–28pt UI text-size
+  slider and an off-by-default "Colorblind-safe status indicators"
+  toggle (shape-differentiated instead of same-shaped colored status)
+  live in the Appearance tab. Every owner-drawn control — title-bar
+  buttons, tabs, checkboxes, sliders, links — exposes a name, role,
+  location, and (where applicable) live toggle state to Windows UI
+  Automation clients (e.g. Narrator), not just a build-time claim:
+  verified against the real `System.Windows.Automation` client API.
+
+### Not yet in the native shell
+
+A handful of features from earlier (now-retired) ImGui-based releases
+have not been ported to the Win32 shell yet and are tracked as
+follow-up work rather than silently dropped: golfing profiles
+(`.ushaderprofile` save/load), a multi-document workspace (multiple
+open shaders as separate tabs) and the session-restore-on-launch
+behavior that depended on it, one-click "Copy as Shadertoy / Bonzomatic
+/ bare main()" clipboard exports, importing a Shader Minifier–style
+exclude-name list, self-contained HTML session reports, PNG viewport
+screenshots, and GIF/MP4/WebM viewport recording. See `ROADMAP.md`
+Phase 28 for the tracked plan.
 
 ## Batch pipeline (CLI)
 
@@ -110,13 +100,83 @@ golf --profile studio.ushaderprofile --budget "4KB intro" \
 golf --diff shader.glsl
 ```
 
-Key flags: `--profile` loads a `.ushaderprofile` saved from the GUI,
-`--budget <preset>` exits non-zero when any file exceeds the size
-threshold (for failing a CI build on regression), `--report
+Key flags: `--profile` loads a `.ushaderprofile` (produced by an
+earlier release's GUI, or hand-written against the published schema —
+see below), `--budget <preset>` exits non-zero when any file exceeds
+the size threshold (for failing a CI build on regression), `--report
 <path.json|path.csv>` writes a machine-readable per-file report,
-`--diff` prints a unified source/golfed diff for a dry-run, and
-`--pretty` opts into colored output (off by default so CI logs stay
-clean). Run `golf --help` for the full list.
+`--diff` prints a unified source/golfed diff for a dry-run,
+`--diff-only` prints just the stats summary instead of the golfed
+code (for scripts that only want pass/fail-style output), `--protect
+NAMES` adds a comma-separated list of identifiers to never rename on
+top of any `--profile` list, `--watch FILE` re-golfs a single file to
+stdout every time it changes on disk (polling every 300ms, stop with
+Ctrl+C — for a local live-reload loop during authoring, not a
+build-system integration), and `--pretty` opts into colored output
+(off by default so CI logs stay clean). Run `golf --help` for the
+full list. The `.ushaderprofile` format is a published, versioned
+JSON schema — see
+[`docs/ushaderprofile-schema.md`](docs/ushaderprofile-schema.md) — so
+other tooling can read or write profiles directly even while the GUI
+itself doesn't yet.
+
+### Build system integration
+
+`golf.exe` is a plain console executable with a scriptable exit code
+(non-zero on a budget failure or a read/parse error), so it drops into
+any local build pipeline without µShader bundling a build-system
+plugin or a file-watcher service itself — the two examples below are
+documentation only.
+
+**MSBuild pre-build step.** Add a `PreBuildEvent` to a `.vcxproj` (or
+the equivalent target in a `.csproj`) that golfs every shader under
+the project and fails the build if any file busts its size budget:
+
+```xml
+<Target Name="GolfShaders" BeforeTargets="PreBuildEvent">
+  <Exec Command="golf.exe --budget &quot;4KB intro&quot; --report &quot;$(ProjectDir)shaders\golf_report.json&quot; &quot;$(ProjectDir)shaders&quot;"
+        WorkingDirectory="$(ProjectDir)" />
+</Target>
+```
+
+`golf.exe` must be reachable from the project's `PATH`, or replace
+`golf.exe` above with the full path to the built binary (for example
+`$(ProjectDir)tools\golf.exe`). Because `--report` writes before
+`--budget` can fail the step, `shaders\golf_report.json` still lands on
+disk for inspection even when the build stops on a regression.
+
+**Plain `.bat` watch script.** `golf.exe` already has a built-in
+`--watch` mode for a single file; a `.bat` wrapper just picks the file
+and re-launches it if it ever exits (for example after a transient
+read error), rather than reimplementing polling itself:
+
+```bat
+@echo off
+setlocal
+set SHADER=%1
+if "%SHADER%"=="" set SHADER=shader.glsl
+
+:loop
+golf.exe --watch "%SHADER%" > "%SHADER%.min.glsl"
+timeout /t 1 /nobreak >nul
+goto loop
+```
+
+Run it as `watch.bat shaders\fractal.glsl`. For a whole directory
+instead of one file, loop `golf.exe` itself on a timer since `--watch`
+only takes a single `FILE`:
+
+```bat
+@echo off
+setlocal
+set SHADERS_DIR=%1
+if "%SHADERS_DIR%"=="" set SHADERS_DIR=shaders
+
+:loop
+golf.exe "%SHADERS_DIR%"
+timeout /t 2 /nobreak >nul
+goto loop
+```
 
 ## Installing
 
@@ -126,8 +186,11 @@ page and run it. The installer is not code-signed, so Windows
 SmartScreen may show an "unknown publisher" warning on first run —
 click "More info" -> "Run anyway" to proceed.
 
-Requires Windows 10 or 11 (64-bit). Verified on Windows 10 (LTSC 2019,
-build 17763); not yet independently verified on Windows 11.
+Requires Windows 10 or 11 (64-bit), using only in-box Win32/GDI+/
+Direct2D/DirectWrite APIs — no separate runtime install. Targets
+Windows 10 (LTSC 2019, build 17763) compatibility; a hardware/VM
+acceptance pass against an actual LTSC 2019 install is still pending
+(see `ROADMAP.md` Phase 27).
 
 ## Building from source
 
@@ -156,9 +219,8 @@ and run:
 
 ## License
 
-[MIT](LICENSE) — free to reuse, modify, and redistribute. Bundles a
-GPL-licensed `ffmpeg.exe` for MP4/WebM recording as a standalone
-executable invoked as a subprocess; see
+[MIT](LICENSE) — free to reuse, modify, and redistribute. Bundles no
+third-party binaries; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## About

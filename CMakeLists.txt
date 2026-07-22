@@ -44,26 +44,6 @@ include(FetchContent)
 
 set(CMAKE_DISABLE_PRECOMPILE_HEADERS ON)
 
-set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-set(SDL_STATIC ON CACHE BOOL "" FORCE)
-set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
-
-FetchContent_Declare(
-    SDL3
-    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-    GIT_TAG release-3.2.18
-    GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(SDL3)
-
-FetchContent_Declare(
-    imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG v1.92.8-docking
-    GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(imgui)
-
 FetchContent_Declare(
     stb
     GIT_REPOSITORY https://github.com/nothings/stb.git
@@ -71,59 +51,6 @@ FetchContent_Declare(
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(stb)
-
-FetchContent_Declare(
-    imguicolortextedit
-    GIT_REPOSITORY https://github.com/BalazsJako/ImGuiColorTextEdit.git
-    GIT_TAG master
-    GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(imguicolortextedit)
-
-FetchContent_Declare(
-    gifh
-    GIT_REPOSITORY https://github.com/charlietangora/gif-h.git
-    GIT_TAG master
-    GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(gifh)
-
-FetchContent_Declare(
-    ffmpeg_bin
-    URL https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip
-)
-FetchContent_MakeAvailable(ffmpeg_bin)
-
-file(GLOB_RECURSE FFMPEG_EXE_CANDIDATES ${ffmpeg_bin_SOURCE_DIR}/bin/ffmpeg.exe)
-list(LENGTH FFMPEG_EXE_CANDIDATES FFMPEG_EXE_CANDIDATE_COUNT)
-if(FFMPEG_EXE_CANDIDATE_COUNT EQUAL 0)
-    message(FATAL_ERROR "ffmpeg.exe not found in downloaded ffmpeg archive")
-endif()
-list(GET FFMPEG_EXE_CANDIDATES 0 FFMPEG_EXE)
-
-add_library(imgui STATIC
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/imgui_demo.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
-    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
-)
-target_include_directories(imgui PUBLIC
-    ${imgui_SOURCE_DIR}
-    ${imgui_SOURCE_DIR}/backends
-)
-target_link_libraries(imgui PUBLIC SDL3::SDL3)
-
-add_library(imguicolortextedit STATIC
-    ${imguicolortextedit_SOURCE_DIR}/TextEditor.cpp
-)
-target_include_directories(imguicolortextedit PUBLIC
-    ${imguicolortextedit_SOURCE_DIR}
-)
-target_link_libraries(imguicolortextedit PUBLIC imgui)
 
 set(RUST_CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/rust-core)
 set(RUST_CORE_LIB ${RUST_CORE_DIR}/target/release/ushader_core.lib)
@@ -147,78 +74,6 @@ add_dependencies(rust_core rust_core_build)
 target_include_directories(rust_core INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(rust_core INTERFACE ws2_32 userenv advapi32 bcrypt ntdll)
 
-add_executable(ushader
-    src/main.cpp
-    src/render/gl_functions.cpp
-    src/render/shader_runner.cpp
-    src/render/framebuffer.cpp
-    src/render/texture.cpp
-    src/platform/paths.cpp
-    src/platform/file_dialog.cpp
-    src/platform/screenshot.cpp
-    src/platform/stb_impl.cpp
-    src/platform/utf8.cpp
-    src/platform/recorder.cpp
-    src/ui/theme.cpp
-    src/ui/layout.cpp
-    src/ui/document.cpp
-    src/ui/workspace.cpp
-    src/ui/glsl_language.cpp
-    src/ui/glsl_format.cpp
-    src/ui/golf_controls.cpp
-    src/ui/golf_profile.cpp
-    src/ui/golf_trace.cpp
-    src/ui/budget_presets.cpp
-    src/ui/stats_panel.cpp
-    src/ui/about_panel.cpp
-    src/ui/equivalence_controls.cpp
-    src/ui/command_palette.cpp
-    src/ui/keybindings.cpp
-    src/ui/recent_files.cpp
-    src/ui/minimap.cpp
-    src/ui/diff_view.cpp
-    src/report/report.cpp
-    src/report/report_encoding.cpp
-    assets/icons/app.rc
-)
-
-target_include_directories(ushader PRIVATE
-    ${CMAKE_CURRENT_BINARY_DIR}/generated
-    ${stb_SOURCE_DIR}
-    ${gifh_SOURCE_DIR}
-)
-
-target_link_libraries(ushader PRIVATE
-    SDL3::SDL3
-    imgui
-    imguicolortextedit
-    opengl32
-    comdlg32
-    rust_core
-)
-
-if(MSVC)
-    target_link_options(ushader PRIVATE "/SUBSYSTEM:WINDOWS" "/ENTRY:mainCRTStartup")
-endif()
-
-add_custom_command(
-    TARGET ushader POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_CURRENT_SOURCE_DIR}/assets
-        $<TARGET_FILE_DIR:ushader>/assets
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-        $<TARGET_FILE_DIR:ushader>/assets/branding
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/docs/logo.png
-        $<TARGET_FILE_DIR:ushader>/assets/branding/logo.png
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${CMAKE_CURRENT_SOURCE_DIR}/docs/app_icon_source.png
-        $<TARGET_FILE_DIR:ushader>/assets/branding/app_icon.png
-    COMMAND ${CMAKE_COMMAND} -E copy
-        ${FFMPEG_EXE}
-        $<TARGET_FILE_DIR:ushader>/ffmpeg.exe
-)
-
 add_executable(rust_core_smoke_test
     tests/rust_core_smoke_test.cpp
 )
@@ -234,7 +89,6 @@ add_executable(golf_profile_roundtrip_test
 )
 
 target_link_libraries(golf_profile_roundtrip_test PRIVATE
-    SDL3::SDL3
     rust_core
 )
 
@@ -252,11 +106,158 @@ add_executable(workspace_roundtrip_test
 )
 
 target_link_libraries(workspace_roundtrip_test PRIVATE
-    SDL3::SDL3
     rust_core
 )
 
 add_executable(report_encoding_test
     tests/report_encoding_test.cpp
     src/report/report_encoding.cpp
+)
+
+add_executable(export_wrappers_test
+    tests/export_wrappers_test.cpp
+    src/ui/export_wrappers.cpp
+)
+
+add_executable(exclude_list_import_test
+    tests/exclude_list_import_test.cpp
+    src/ui/exclude_list_import.cpp
+    src/platform/paths.cpp
+    src/platform/file_dialog.cpp
+    src/platform/utf8.cpp
+)
+
+target_link_libraries(exclude_list_import_test PRIVATE
+    comdlg32
+)
+
+add_executable(ushaderprofile_schema_test
+    tests/ushaderprofile_schema_test.cpp
+    src/ui/golf_profile.cpp
+    src/ui/budget_presets.cpp
+    src/platform/paths.cpp
+    src/platform/utf8.cpp
+)
+
+target_link_libraries(ushaderprofile_schema_test PRIVATE
+    rust_core
+)
+
+add_executable(wgl_viewport_spike
+    src/render/wgl_viewport_spike_main.cpp
+    src/render/wgl_viewport_host.cpp
+    src/render/gl_functions_wgl.cpp
+    src/render/gl_functions_globals.cpp
+    src/render/shader_runner.cpp
+    src/render/framebuffer.cpp
+    src/platform/screenshot.cpp
+    src/platform/stb_impl.cpp
+)
+
+target_include_directories(wgl_viewport_spike PRIVATE
+    ${stb_SOURCE_DIR}
+)
+
+target_link_libraries(wgl_viewport_spike PRIVATE
+    opengl32
+    gdi32
+    user32
+)
+
+add_executable(ushader
+    src/main_win32.cpp
+    src/render/wgl_viewport_host.cpp
+    src/render/gl_functions_wgl.cpp
+    src/render/gl_functions_globals.cpp
+    src/render/shader_runner.cpp
+    src/render/shader_error_state.cpp
+    src/render/framebuffer.cpp
+    src/platform/screenshot.cpp
+    src/platform/stb_impl.cpp
+    src/platform/utf8.cpp
+    src/platform/accessibility_core.cpp
+    src/ui/win32_theme_brushes.cpp
+    src/ui/win32_title_bar.cpp
+    src/ui/win32_tab_strip.cpp
+    src/ui/win32_icon_set.cpp
+    src/ui/win32_status_dot.cpp
+    src/ui/win32_animation.cpp
+    src/ui/win32_text_editor.cpp
+    src/ui/win32_minimap.cpp
+    src/ui/win32_diff_view.cpp
+    src/ui/win32_trace_view.cpp
+    src/ui/win32_command_palette.cpp
+    src/ui/win32_golf_controls.cpp
+    src/ui/win32_stats_panel.cpp
+    src/ui/win32_appearance_settings.cpp
+    src/ui/win32_appearance_panel.cpp
+    src/ui/win32_about_panel.cpp
+    src/ui/golf_options_convert.cpp
+    src/ui/budget_presets.cpp
+    src/ui/unified_diff.cpp
+    src/ui/golf_trace.cpp
+    src/ui/glsl_token_rules.cpp
+    src/ui/glsl_syntax_colors.cpp
+    src/ui/glsl_format.cpp
+    src/ui/fuzzy_match.cpp
+    src/ui/keybindings_storage.cpp
+    src/ui/win32_keybindings.cpp
+    src/ui/recent_files.cpp
+    src/platform/paths.cpp
+    src/platform/file_dialog.cpp
+    assets/icons/app.rc
+)
+
+target_include_directories(ushader PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+    ${stb_SOURCE_DIR}
+    src
+)
+
+target_link_libraries(ushader PRIVATE
+    opengl32
+    gdi32
+    user32
+    shell32
+    comdlg32
+    d2d1
+    dwrite
+    dwmapi
+    gdiplus
+    uiautomationcore
+    ole32
+    oleaut32
+    rust_core
+)
+
+if(MSVC)
+    target_link_options(ushader PRIVATE "/SUBSYSTEM:WINDOWS" "/ENTRY:mainCRTStartup")
+endif()
+
+add_custom_command(
+    TARGET ushader POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/assets
+        $<TARGET_FILE_DIR:ushader>/assets
+)
+
+add_executable(wgl_equivalence_test
+    tests/wgl_equivalence_test.cpp
+    src/render/wgl_viewport_host.cpp
+    src/render/gl_functions_wgl.cpp
+    src/render/gl_functions_globals.cpp
+    src/render/shader_runner.cpp
+    src/render/framebuffer.cpp
+    src/platform/screenshot.cpp
+    src/platform/stb_impl.cpp
+)
+
+target_include_directories(wgl_equivalence_test PRIVATE
+    ${stb_SOURCE_DIR}
+)
+
+target_link_libraries(wgl_equivalence_test PRIVATE
+    opengl32
+    gdi32
+    user32
 )

@@ -39,6 +39,8 @@ typedef void(APIENTRY* PFNGLBINDFRAMEBUFFERPROC)(GLenum target, GLuint framebuff
 typedef void(APIENTRY* PFNGLFRAMEBUFFERTEXTURE2DPROC)(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
 typedef GLenum(APIENTRY* PFNGLCHECKFRAMEBUFFERSTATUSPROC)(GLenum target);
 typedef void(APIENTRY* PFNGLDELETEFRAMEBUFFERSPROC)(GLsizei n, const GLuint* framebuffers);
+typedef void(APIENTRY* PFNGLBLITFRAMEBUFFERPROC)(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
+    GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter);
 
 extern PFNGLCREATESHADERPROC glCreateShader;
 extern PFNGLSHADERSOURCEPROC glShaderSource;
@@ -67,6 +69,7 @@ extern PFNGLBINDFRAMEBUFFERPROC glBindFramebuffer;
 extern PFNGLFRAMEBUFFERTEXTURE2DPROC glFramebufferTexture2D;
 extern PFNGLCHECKFRAMEBUFFERSTATUSPROC glCheckFramebufferStatus;
 extern PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers;
+extern PFNGLBLITFRAMEBUFFERPROC glBlitFramebuffer;
 
 #define GL_FRAGMENT_SHADER 0x8B30
 #define GL_VERTEX_SHADER 0x8B31
@@ -77,5 +80,7 @@ extern PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers;
 #define GL_COLOR_ATTACHMENT0 0x8CE0
 #define GL_FRAMEBUFFER_COMPLETE 0x8CD5
 #define GL_CLAMP_TO_EDGE 0x812F
+#define GL_READ_FRAMEBUFFER 0x8CA8
+#define GL_DRAW_FRAMEBUFFER 0x8CA9
 
-bool gl_load_functions();
+bool gl_load_functions_wgl();

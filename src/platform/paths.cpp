@@ -3,21 +3,10 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-#include <SDL3/SDL.h>
-
 #include <cstdio>
 #include <cstdlib>
 
 #include "utf8.h"
-
-std::string asset_path(const std::string& relative_path)
-{
-    const char* base_path = SDL_GetBasePath();
-    std::string result = base_path != nullptr ? base_path : "./";
-    result += "assets/";
-    result += relative_path;
-    return result;
-}
 
 std::string app_data_dir()
 {

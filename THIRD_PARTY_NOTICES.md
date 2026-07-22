@@ -1,25 +1,10 @@
 # Third-party notices
 
-µShader is MIT-licensed (see `LICENSE`). It bundles the following
-third-party binary as a standalone, separately-invoked executable
-(not linked into `ushader.exe`):
-
-## FFmpeg (`ffmpeg.exe`)
-
-Used to encode MP4 and WebM viewport recordings. Invoked as a
-subprocess; µShader communicates with it only through a pipe of raw
-pixel data and command-line arguments.
-
-- Project: https://ffmpeg.org
-- Build source: https://github.com/BtbN/FFmpeg-Builds
-- License: GNU General Public License v3.0 (this build includes
-  `libx264` and `libvpx`, which require the GPL variant rather than
-  LGPL)
-- Full license text: https://www.gnu.org/licenses/gpl-3.0.html
-- Corresponding source code for the exact build used is published by
-  the FFmpeg project and the BtbN/FFmpeg-Builds project at the links
-  above.
-
-GIF recording does not depend on FFmpeg; it uses the bundled
-public-domain `gif-h` library (https://github.com/charlietangora/gif-h),
-compiled directly into `ushader.exe`.
+µShader is MIT-licensed (see `LICENSE`). As of v3.0.0, it bundles no
+third-party binaries or fonts: the Win32/Direct2D/DirectWrite/GDI+
+shell uses only APIs and fonts already in-box on Windows 10/11
+(Segoe UI, Consolas), and the viewport recording feature that used to
+bundle FFmpeg and the `gif-h` library has been removed. `stb_image`
+and `stb_image_write` (public domain / MIT dual-license,
+https://github.com/nothings/stb) are compiled directly into
+`ushader.exe` for PNG screenshot encoding.

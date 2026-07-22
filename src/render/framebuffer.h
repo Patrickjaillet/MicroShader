@@ -12,6 +12,7 @@ public:
     bool read_pixels(std::vector<unsigned char>& out_rgba) const;
 
     unsigned int texture_id() const { return texture; }
+    unsigned int framebuffer_id() const { return fbo; }
     int width() const { return current_width; }
     int height() const { return current_height; }
 
