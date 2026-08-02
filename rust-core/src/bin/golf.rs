@@ -214,6 +214,11 @@ fn parse_profile(text: &str) -> Result<Profile, String> {
     if !text.contains('{') {
         return Err("profile is not a valid .ushaderprofile document".to_string());
     }
+    let budget_name = profile_string(text, "budget_preset");
+    let is_compression_budget = !budget_name.is_empty()
+        && find_preset(&budget_name)
+            .map(|p| p.deflate_limit.is_some())
+            .unwrap_or(false);
     let options = AggressiveOptions {
         eliminate_dead_locals: profile_bool(text, "eliminate_dead_locals", true),
         eliminate_dead_stores: profile_bool(text, "eliminate_dead_stores", true),
@@ -236,12 +241,12 @@ fn parse_profile(text: &str) -> Result<Profile, String> {
         fuse_statement_sequences: profile_bool(text, "fuse_statement_sequences", true),
         aggressive_inlining: profile_bool(text, "aggressive_inlining", false),
         macro_cse: profile_bool(text, "macro_cse", false),
+        macro_cse_compression_budget: is_compression_budget,
         hoist_declarations: profile_bool(text, "hoist_declarations", false),
         loop_header_golf: profile_bool(text, "loop_header_golf", false),
         loop_form_golf: profile_bool(text, "loop_form_golf", false),
         swizzle_alphabet: swizzle_alphabet_from_int(profile_int(text, "swizzle_alphabet", 0)),
     };
-    let budget_name = profile_string(text, "budget_preset");
     Ok(Profile {
         aggressive: profile_bool(text, "aggressive", true),
         options,

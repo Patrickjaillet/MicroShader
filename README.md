@@ -218,7 +218,7 @@ To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php
 and run:
 
 ```bash
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=1.0.0.0 installer\ushader.iss
+& "C:\Program Files\Inno Setup 7\ISCC.exe" /DMyAppVersion=3.0.2.0 installer\ushader.iss
 ```
 
 ## License
