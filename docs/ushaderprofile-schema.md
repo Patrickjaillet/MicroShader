@@ -36,6 +36,7 @@ reverse-engineering `golf_profile.cpp`.
   "inline_single_call_functions": true,
   "simplify_algebraic_identities": false,
   "eliminate_common_subexpressions": true,
+  "frequency_aware_renaming": false,
   "protected_names": "iTime,iResolution,mainImage",
   "budget_preset": "JS13K-style 13KB"
 }
@@ -52,6 +53,10 @@ round-trips against the real Rust golfing engine.)
 | `schema_version` | integer | See [Schema versioning](#schema-versioning) below. |
 | `aggressive` | boolean | Master toggle. When `false`, every pass toggle below is ignored and only the always-on baseline (identifier renaming, numeric literal shortening, whitespace stripping) runs. |
 | `eliminate_dead_locals` … `eliminate_common_subexpressions` | boolean | The 16 individually-toggleable aggressive passes, one field per pass, using the same field names as the corresponding `GolfPassToggles` struct member in `ui/golf_controls.h`. |
+| `frequency_aware_renaming` | boolean | Opt-in Phase 29.1 rename heuristic. When `true`, the engine tries a deterministic compression-aware identifier mapping and keeps it only if the final post-pass DEFLATE estimate is strictly better than the historical rename order. Missing field defaults to `false`. |
+| `factor_repeated_vector_args` | boolean | Phase 29.3 pass: collapses `vecN(a,a,...,a)` constructor calls whose arguments are all the same pure identifier expression down to `vecN(a)`. Introduced in schema version 2. Missing field defaults to `true`. |
+| `swizzle_alphabet` | integer | Phase 29.2 swizzle-letter-alphabet choice: `0` = Auto (try `.xyzw`/`.rgba`/`.stpq` against the DEFLATE estimator and keep the smallest), `1` = `.xyzw`, `2` = `.rgba`, `3` = `.stpq`. Introduced in schema version 2. Missing field defaults to `0` (Auto). |
+| `fuse_statement_sequences` | boolean | Phase 30.3 pass: fuses a maximal run of two or more adjacent assignment/increment-decrement/call expression-statements in the same block into a single comma-operator statement. Introduced in schema version 3. Missing field defaults to `true`. |
 | `protected_names` | string | Comma-separated identifiers the golfing engine must never rename. Entries are trimmed of surrounding whitespace; empty entries (e.g. a trailing comma) are dropped. May be `""`. |
 | `budget_preset` | string | The name of one of the built-in size-budget presets in `ui/budget_presets.cpp` (`Shadertoy`, `X/Twitter shader`, `JS13K-style 13KB`, `4KB intro`, `8KB intro`, `64KB intro`). An unrecognized or missing value falls back to no preset selected ("Custom") rather than a load failure. |
 
@@ -97,7 +102,9 @@ out.
 | `schema_version` | uShader release | Notes |
 | --- | --- | --- |
 | *(absent)* | ≤ 2.1.0 | Equivalent to `1`. No `schema_version` field was written. |
-| `1` | 2.2.0+ | Current format. Adds the `schema_version` field itself; no other field changed shape or meaning. |
+| `1` | 2.2.0+ | Adds the `schema_version` field itself; no other field changed shape or meaning. |
+| `2` | Phase 29.2/29.3 | Adds `factor_repeated_vector_args` and `swizzle_alphabet`. Both are purely additive/optional fields (a profile without them behaves exactly as before), bumped anyway per this project's own convention of bumping on every new pass-toggle field, stricter than the "purely additive fields don't need a bump" rule below. |
+| `3` | Phase 30.3 | Adds `fuse_statement_sequences`, for the same reason as version 2 above. Current format. |
 
 Future format changes that add a required field, change a field's
 type, or change what a value means (as opposed to purely additive,
@@ -106,3 +113,4 @@ table above, together with a matching update to
 `ushaderprofile.schema.json` (its `required` list and/or per-field
 `type`) and to this document. Purely additive optional fields do not
 need a version bump, per the "unknown fields are ignored" rule above.
+`frequency_aware_renaming` is the first such additive optional field.

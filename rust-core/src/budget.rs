@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::twigl::{rewrite_twigl_shader, TwiglMode};
+
 const WINDOW_SIZE: usize = 32768;
 const MIN_MATCH: usize = 3;
 const MAX_MATCH: usize = 258;
@@ -184,6 +186,11 @@ pub fn estimate_budget(source: &str) -> BudgetResult {
     }
 }
 
+pub fn estimate_twigl_geekest_budget(source: &str) -> BudgetResult {
+    let rewritten = rewrite_twigl_shader(source, TwiglMode::Geekest, false);
+    estimate_budget(&rewritten)
+}
+
 pub struct BudgetPreset {
     pub name: &'static str,
     pub raw_limit: Option<usize>,
@@ -199,6 +206,16 @@ pub fn presets() -> &'static [BudgetPreset] {
         },
         BudgetPreset {
             name: "X/Twitter shader",
+            raw_limit: Some(280),
+            deflate_limit: None,
+        },
+        BudgetPreset {
+            name: "Twigl classic",
+            raw_limit: Some(280),
+            deflate_limit: None,
+        },
+        BudgetPreset {
+            name: "Twigl geekest",
             raw_limit: Some(280),
             deflate_limit: None,
         },
@@ -260,5 +277,22 @@ mod tests {
     fn presets_are_named_and_non_empty() {
         assert!(presets().iter().any(|p| p.name == "4KB intro"));
         assert!(presets().iter().any(|p| p.name == "Shadertoy"));
+    }
+
+    #[test]
+    fn twigl_budget_presets_match_the_280_byte_tweetshader_ceiling() {
+        let twigl_classic = presets().iter().find(|p| p.name == "Twigl classic").unwrap();
+        let twigl_geekest = presets().iter().find(|p| p.name == "Twigl geekest").unwrap();
+        assert_eq!(twigl_classic.raw_limit, Some(280));
+        assert_eq!(twigl_geekest.raw_limit, Some(280));
+    }
+
+    #[test]
+    fn twigl_geekest_budget_measures_the_rewritten_output_not_the_raw_source() {
+        let source = "precision mediump float;\nuniform vec2 iResolution;\nvoid main(){gl_FragColor=vec4(1.0);}";
+        let raw = estimate_budget(source);
+        let geekest = estimate_twigl_geekest_budget(source);
+        assert!(geekest.raw_bytes < raw.raw_bytes);
+        assert_eq!(geekest.raw_bytes, "gl_FragColor=vec4(1.0);".len());
     }
 }

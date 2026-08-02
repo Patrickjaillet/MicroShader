@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 use ushader_core::{
     estimate_budget, golf_with_protected_names, presets, AggressiveOptions, AggressiveStats,
-    BudgetPreset, BudgetResult, GolfResult,
+    BudgetPreset, BudgetResult, GolfResult, SwizzleAlphabet,
 };
 
 const HELP: &str = r#"golf — GLSL minification CLI
@@ -139,6 +139,34 @@ fn profile_bool(text: &str, key: &str, default: bool) -> bool {
     }
 }
 
+fn profile_int(text: &str, key: &str, default: i32) -> i32 {
+    let needle = format!("\"{key}\"");
+    let Some(key_pos) = text.find(&needle) else {
+        return default;
+    };
+    let after = &text[key_pos + needle.len()..];
+    let Some(colon) = after.find(':') else {
+        return default;
+    };
+    let slice = &after[colon + 1..];
+    let end = slice.find([',', '}', '\n']).unwrap_or(slice.len());
+    slice[..end].trim().parse::<i32>().unwrap_or(default)
+}
+
+// Mirrors the C++ side's `SwizzleAlphabetChoice` (golf_controls.h) and the
+// `.ushaderprofile` schema's integer encoding: Auto = 0, Xyzw = 1, Rgba = 2,
+// Stpq = 3. Unrecognized values fall back to `Auto`, matching the
+// backward-compatible "absent field defaults to Auto" rule from golf.md
+// Phase 29.2.
+fn swizzle_alphabet_from_int(value: i32) -> SwizzleAlphabet {
+    match value {
+        1 => SwizzleAlphabet::Xyzw,
+        2 => SwizzleAlphabet::Rgba,
+        3 => SwizzleAlphabet::Stpq,
+        _ => SwizzleAlphabet::Auto,
+    }
+}
+
 fn profile_string(text: &str, key: &str) -> String {
     let needle = format!("\"{key}\"");
     let Some(key_pos) = text.find(&needle) else {
@@ -203,6 +231,15 @@ fn parse_profile(text: &str) -> Result<Profile, String> {
         inline_single_call_functions: profile_bool(text, "inline_single_call_functions", true),
         simplify_algebraic_identities: profile_bool(text, "simplify_algebraic_identities", true),
         eliminate_common_subexpressions: profile_bool(text, "eliminate_common_subexpressions", true),
+        frequency_aware_renaming: profile_bool(text, "frequency_aware_renaming", false),
+        factor_repeated_vector_args: profile_bool(text, "factor_repeated_vector_args", true),
+        fuse_statement_sequences: profile_bool(text, "fuse_statement_sequences", true),
+        aggressive_inlining: profile_bool(text, "aggressive_inlining", false),
+        macro_cse: profile_bool(text, "macro_cse", false),
+        hoist_declarations: profile_bool(text, "hoist_declarations", false),
+        loop_header_golf: profile_bool(text, "loop_header_golf", false),
+        loop_form_golf: profile_bool(text, "loop_form_golf", false),
+        swizzle_alphabet: swizzle_alphabet_from_int(profile_int(text, "swizzle_alphabet", 0)),
     };
     let budget_name = profile_string(text, "budget_preset");
     Ok(Profile {
@@ -500,11 +537,12 @@ fn stats_summary(result: &GolfResult, aggressive: bool) -> String {
     if aggressive {
         let a = &result.stats.aggressive;
         line.push_str(&format!(
-            ", {} dead locals removed, {} dead stores removed, {} constants folded, {} constant vectors reduced, {} trailing returns removed, {} compound assignments, {} increments/decrements, {} ternaries from if/else, {} declarations merged, {} brace blocks removed, {} redundant parens removed, {} duplicate precision qualifiers removed, {} dead functions removed, {} functions inlined, {} algebraic identities simplified, {} common subexpressions eliminated",
+            ", {} dead locals removed, {} dead stores removed, {} constants folded, {} constant vectors reduced, {} vector args factored, {} trailing returns removed, {} compound assignments, {} increments/decrements, {} ternaries from if/else, {} declarations merged, {} brace blocks removed, {} redundant parens removed, {} duplicate precision qualifiers removed, {} dead functions removed, {} functions inlined, {} algebraic identities simplified, {} common subexpressions eliminated, {} swizzles recolored",
             a.dead_locals_removed,
             a.dead_stores_removed,
             a.constants_folded,
             a.constant_vectors_reduced,
+            a.vector_args_factored,
             a.trailing_void_returns_removed,
             a.compound_assignments,
             a.increments_decrements,
@@ -517,6 +555,7 @@ fn stats_summary(result: &GolfResult, aggressive: bool) -> String {
             a.functions_inlined,
             a.algebraic_identities_simplified,
             a.common_subexpressions_eliminated,
+            a.swizzles_recolored,
         ));
     }
     line.push(')');
@@ -535,7 +574,7 @@ struct FileReport {
     budget_pass: Option<bool>,
 }
 
-const AGGRESSIVE_COLUMNS: [&str; 16] = [
+const AGGRESSIVE_COLUMNS: [&str; 18] = [
     "compound_assignments",
     "declarations_merged",
     "braces_removed",
@@ -543,6 +582,7 @@ const AGGRESSIVE_COLUMNS: [&str; 16] = [
     "dead_locals_removed",
     "dead_stores_removed",
     "constant_vectors_reduced",
+    "vector_args_factored",
     "trailing_void_returns_removed",
     "increments_decrements",
     "ternaries_from_if_else",
@@ -552,9 +592,10 @@ const AGGRESSIVE_COLUMNS: [&str; 16] = [
     "functions_inlined",
     "algebraic_identities_simplified",
     "common_subexpressions_eliminated",
+    "swizzles_recolored",
 ];
 
-fn aggressive_values(a: &AggressiveStats) -> [usize; 16] {
+fn aggressive_values(a: &AggressiveStats) -> [usize; 18] {
     [
         a.compound_assignments,
         a.declarations_merged,
@@ -563,6 +604,7 @@ fn aggressive_values(a: &AggressiveStats) -> [usize; 16] {
         a.dead_locals_removed,
         a.dead_stores_removed,
         a.constant_vectors_reduced,
+        a.vector_args_factored,
         a.trailing_void_returns_removed,
         a.increments_decrements,
         a.ternaries_from_if_else,
@@ -572,6 +614,7 @@ fn aggressive_values(a: &AggressiveStats) -> [usize; 16] {
         a.functions_inlined,
         a.algebraic_identities_simplified,
         a.common_subexpressions_eliminated,
+        a.swizzles_recolored,
     ]
 }
 
@@ -817,6 +860,9 @@ fn set_option(options: &mut AggressiveOptions, name: &str, value: bool) {
         "inline_single_call_functions" => options.inline_single_call_functions = value,
         "simplify_algebraic_identities" => options.simplify_algebraic_identities = value,
         "eliminate_common_subexpressions" => options.eliminate_common_subexpressions = value,
+        "frequency_aware_renaming" => options.frequency_aware_renaming = value,
+        "factor_repeated_vector_args" => options.factor_repeated_vector_args = value,
+        "fuse_statement_sequences" => options.fuse_statement_sequences = value,
         _ => {}
     }
 }

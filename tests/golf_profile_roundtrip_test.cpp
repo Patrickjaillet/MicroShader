@@ -35,7 +35,8 @@ namespace
             && a.eliminate_dead_functions == b.eliminate_dead_functions
             && a.inline_single_call_functions == b.inline_single_call_functions
             && a.simplify_algebraic_identities == b.simplify_algebraic_identities
-            && a.eliminate_common_subexpressions == b.eliminate_common_subexpressions;
+            && a.eliminate_common_subexpressions == b.eliminate_common_subexpressions
+            && a.frequency_aware_renaming == b.frequency_aware_renaming;
     }
 
     UshaderGolfOptions to_golf_options_local(const GolfPassToggles& toggles)
@@ -61,6 +62,7 @@ namespace
             toggles.inline_single_call_functions,
             toggles.simplify_algebraic_identities,
             toggles.eliminate_common_subexpressions,
+            toggles.frequency_aware_renaming,
         };
     }
 
@@ -108,6 +110,7 @@ int main()
     expected.inline_single_call_functions = true;
     expected.simplify_algebraic_identities = false;
     expected.eliminate_common_subexpressions = true;
+    expected.frequency_aware_renaming = false;
 
     if (!toggles_field_equal(loaded, expected))
     {

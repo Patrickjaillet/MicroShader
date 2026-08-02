@@ -21,7 +21,7 @@ namespace
         const wchar_t* label;
     };
 
-    std::array<CheckboxEntry, 16> checkbox_entries(GolfPassToggles& t)
+    std::array<CheckboxEntry, 19> checkbox_entries(GolfPassToggles& t)
     {
         return {{
             { &t.eliminate_dead_locals, L"Dead locals" },
@@ -40,8 +40,13 @@ namespace
             { &t.eliminate_dead_functions, L"Dead functions" },
             { &t.inline_single_call_functions, L"Inline single-call" },
             { &t.eliminate_common_subexpressions, L"Common subexpressions" },
+            { &t.fuse_statement_sequences, L"Fuse statement sequences" },
+            { &t.frequency_aware_renaming, L"Freq-aware renaming" },
+            { &t.factor_repeated_vector_args, L"Factor repeated vector args" },
         }};
     }
+
+    constexpr const wchar_t* kSwizzleAlphabetLabels[4] = { L"Auto", L"xyzw", L"rgba", L"stpq" };
 }
 
 bool Win32GolfControls::create(ID2D1RenderTarget* render_target, IDWriteFactory* dwrite_factory)
@@ -92,15 +97,23 @@ RECT Win32GolfControls::checkbox_hit_rect(int index) const
 
 RECT Win32GolfControls::field_rect() const
 {
-    LONG top = origin_y + 12 + static_cast<LONG>(kRowHeight) + 24 + 16 * static_cast<LONG>(kRowHeight) + 16;
+    LONG top = origin_y + 12 + static_cast<LONG>(kRowHeight) + 24 + kCheckboxCount * static_cast<LONG>(kRowHeight) + 16;
+    LONG right_margin = width_px > 24 ? width_px - 16 : 8;
+    return RECT{ origin_x + 8, top, origin_x + right_margin, top + static_cast<LONG>(kRowHeight) };
+}
+
+RECT Win32GolfControls::swizzle_alphabet_rect() const
+{
+    RECT field = field_rect();
+    LONG top = field.bottom + 12;
     LONG right_margin = width_px > 24 ? width_px - 16 : 8;
     return RECT{ origin_x + 8, top, origin_x + right_margin, top + static_cast<LONG>(kRowHeight) };
 }
 
 RECT Win32GolfControls::preset_rect() const
 {
-    RECT field = field_rect();
-    LONG top = field.bottom + 12;
+    RECT swizzle = swizzle_alphabet_rect();
+    LONG top = swizzle.bottom + 12;
     LONG right_margin = width_px > 24 ? width_px - 16 : 8;
     return RECT{ origin_x + 8, top, origin_x + right_margin, top + static_cast<LONG>(kRowHeight) };
 }
@@ -117,8 +130,8 @@ bool Win32GolfControls::on_mouse_down(int client_x, int client_y)
         return true;
     }
 
-    std::array<CheckboxEntry, 16> entries = checkbox_entries(golf_toggles);
-    for (int i = 0; golf_toggles.aggressive && i < 16; ++i)
+    std::array<CheckboxEntry, kCheckboxCount> entries = checkbox_entries(golf_toggles);
+    for (int i = 0; golf_toggles.aggressive && i < kCheckboxCount; ++i)
     {
         RECT box = checkbox_hit_rect(i);
         RECT hit{ box.left - 4, box.top - 4, origin_x + width_px - 8, box.bottom + 4 };
@@ -136,6 +149,13 @@ bool Win32GolfControls::on_mouse_down(int client_x, int client_y)
         return true;
     }
     field_focused = false;
+
+    RECT swizzle = swizzle_alphabet_rect();
+    if (PtInRect(&swizzle, pt))
+    {
+        golf_toggles.swizzle_alphabet = (golf_toggles.swizzle_alphabet + 1) % 4;
+        return true;
+    }
 
     RECT preset = preset_rect();
     if (PtInRect(&preset, pt))
@@ -226,9 +246,9 @@ void Win32GolfControls::paint(ID2D1RenderTarget* render_target, const ThemeBrush
     dynamic_brush->SetColor(D2D1::ColorF(tokens::text_secondary.x, tokens::text_secondary.y, tokens::text_secondary.z));
     render_target->DrawText(L"PASSES", 6, text_format, header_rect, dynamic_brush);
 
-    std::array<CheckboxEntry, 16> entries = checkbox_entries(const_cast<GolfPassToggles&>(golf_toggles));
+    std::array<CheckboxEntry, kCheckboxCount> entries = checkbox_entries(const_cast<GolfPassToggles&>(golf_toggles));
     float disabled_alpha = golf_toggles.aggressive ? 1.0f : 0.4f;
-    for (int i = 0; i < 16; ++i)
+    for (int i = 0; i < kCheckboxCount; ++i)
     {
         draw_checkbox(checkbox_hit_rect(i), *entries[static_cast<size_t>(i)].value, entries[static_cast<size_t>(i)].label, disabled_alpha);
     }
@@ -250,6 +270,19 @@ void Win32GolfControls::paint(ID2D1RenderTarget* render_target, const ThemeBrush
         ? D2D1::ColorF(tokens::text_disabled.x, tokens::text_disabled.y, tokens::text_disabled.z)
         : D2D1::ColorF(tokens::text_primary.x, tokens::text_primary.y, tokens::text_primary.z));
     render_target->DrawText(field_text.c_str(), static_cast<UINT32>(field_text.size()), text_format, field_text_rect, dynamic_brush);
+
+    RECT swizzle = swizzle_alphabet_rect();
+    D2D1_RECT_F swizzle_rect_f = D2D1::RectF(static_cast<float>(swizzle.left), static_cast<float>(swizzle.top),
+        static_cast<float>(swizzle.right), static_cast<float>(swizzle.bottom));
+    std::wstring swizzle_label = L"Swizzle alphabet: ";
+    swizzle_label += kSwizzleAlphabetLabels[golf_toggles.swizzle_alphabet >= 0 && golf_toggles.swizzle_alphabet < 4
+        ? golf_toggles.swizzle_alphabet : 0];
+    dynamic_brush->SetColor(D2D1::ColorF(tokens::accent.x, tokens::accent.y, tokens::accent.z));
+    render_target->DrawText(swizzle_label.c_str(), static_cast<UINT32>(swizzle_label.size()), text_format, swizzle_rect_f, dynamic_brush);
+
+    accessibility_register(wide_to_utf8(swizzle_label.c_str()).c_str(), AccessibleRole::Button,
+        static_cast<float>(swizzle.left), static_cast<float>(swizzle.top),
+        static_cast<float>(swizzle.right - swizzle.left), static_cast<float>(swizzle.bottom - swizzle.top), true);
 
     RECT preset = preset_rect();
     std::size_t preset_count = 0;

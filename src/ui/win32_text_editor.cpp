@@ -106,6 +106,17 @@ std::string Win32TextEditor::text_utf8() const
     return wide_to_utf8(combined.c_str());
 }
 
+void Win32TextEditor::insert_text_utf8(const std::string& utf8_text)
+{
+    if (is_read_only)
+    {
+        return;
+    }
+    insert_text(utf8_to_wide(utf8_text));
+    ensure_caret_visible();
+    retokenize_all();
+}
+
 void Win32TextEditor::retokenize_all()
 {
     starts_in_comment.assign(lines.size(), false);

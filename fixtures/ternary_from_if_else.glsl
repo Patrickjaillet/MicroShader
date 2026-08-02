@@ -17,10 +17,18 @@ vec3 pick(vec3 a, vec3 b, float t) {
     return result;
 }
 
+float clampSign(float x) {
+    if (x > 1.0) {
+        return 1.0;
+    }
+    return -1.0;
+}
+
 void mainImage(out vec4 fragColor, in vec2 fragCoord)
 {
     vec2 uv = fragCoord / iResolution.xy;
     float m = sign2(uv.x - 0.5);
     vec3 col = pick(vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), uv.y);
-    fragColor = vec4(col * m, 1.0);
+    float clamped = clampSign(uv.y * 2.0);
+    fragColor = vec4(col * m * clamped, 1.0);
 }

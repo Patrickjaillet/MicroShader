@@ -22,6 +22,11 @@ public:
 
     bool contains(int client_x, int client_y) const;
 
+    int origin_x_px() const { return origin_x; }
+    int origin_y_px() const { return origin_y; }
+    int width_in_px() const { return width_px; }
+    int height_in_px() const { return height_px; }
+
 private:
     IDWriteTextFormat* text_format = nullptr;
     ID2D1SolidColorBrush* dynamic_brush = nullptr;

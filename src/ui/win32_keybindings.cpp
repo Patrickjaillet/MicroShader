@@ -83,6 +83,7 @@ Win32Keybindings default_win32_keybindings()
     bindings.open_file = Win32KeyChord{ 'O', true, false, false };
     bindings.save_file = Win32KeyChord{ 'S', true, false, false };
     bindings.close_tab = Win32KeyChord{ 'W', true, false, false };
+    bindings.twigl_export_toggle = Win32KeyChord{ 'T', true, false, true };
     return bindings;
 }
 
@@ -106,6 +107,7 @@ Win32Keybindings load_win32_keybindings()
     bindings.open_file = load_one(text, "open_file", fallback.open_file);
     bindings.save_file = load_one(text, "save_file", fallback.save_file);
     bindings.close_tab = load_one(text, "close_tab", fallback.close_tab);
+    bindings.twigl_export_toggle = load_one(text, "twigl_export_toggle", fallback.twigl_export_toggle);
     return bindings;
 }
 
@@ -122,7 +124,8 @@ void save_win32_keybindings(const Win32Keybindings& bindings)
     save_one(out, "new_tab", bindings.new_tab, true);
     save_one(out, "open_file", bindings.open_file, true);
     save_one(out, "save_file", bindings.save_file, true);
-    save_one(out, "close_tab", bindings.close_tab, false);
+    save_one(out, "close_tab", bindings.close_tab, true);
+    save_one(out, "twigl_export_toggle", bindings.twigl_export_toggle, false);
     out += "}\n";
     write_utf8_file(file_path, out);
 }

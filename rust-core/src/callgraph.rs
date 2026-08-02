@@ -110,6 +110,32 @@ impl CallGraph {
     pub(crate) fn total_calls_to(&self, name: &str) -> usize {
         self.edges.values().map(|callees| callees.get(name).copied().unwrap_or(0)).sum()
     }
+
+    /// True if `name` can reach itself through one or more call edges,
+    /// directly (self-recursion) or through a cycle involving other
+    /// functions (mutual recursion). golf.md Phase 30.1 requires this check
+    /// before considering a function for aggressive multi-call-site
+    /// inlining, since substituting a recursive function's body at its call
+    /// sites would either loop forever or require unbounded expansion.
+    pub(crate) fn is_recursive(&self, name: &str) -> bool {
+        let mut visited: HashSet<&str> = HashSet::new();
+        let mut stack: Vec<&str> = Vec::new();
+        if let Some(callees) = self.edges.get(name) {
+            stack.extend(callees.keys().map(|s| s.as_str()));
+        }
+        while let Some(current) = stack.pop() {
+            if current == name {
+                return true;
+            }
+            if !visited.insert(current) {
+                continue;
+            }
+            if let Some(callees) = self.edges.get(current) {
+                stack.extend(callees.keys().map(|s| s.as_str()));
+            }
+        }
+        false
+    }
 }
 
 #[cfg(test)]

@@ -60,8 +60,9 @@ find_program(CARGO_EXECUTABLE cargo REQUIRED)
 
 add_custom_command(
     OUTPUT ${RUST_CORE_LIB}
-    COMMAND ${CARGO_EXECUTABLE} build --release --features capi
-    WORKING_DIRECTORY ${RUST_CORE_DIR}
+    COMMAND ${CMAKE_COMMAND} -E env CARGO_TARGET_DIR=${RUST_CORE_DIR}/target
+            ${CARGO_EXECUTABLE} build --release --features capi --manifest-path ${RUST_CORE_DIR}/Cargo.toml
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     DEPENDS ${RUST_CORE_DIR}/Cargo.toml ${RUST_CORE_SOURCES}
     COMMENT "Building rust-core"
     VERBATIM
@@ -193,6 +194,7 @@ add_executable(ushader
     src/ui/win32_appearance_panel.cpp
     src/ui/win32_about_panel.cpp
     src/ui/win32_tool_button.cpp
+    src/ui/win32_twigl_export_panel.cpp
     src/ui/golf_options_convert.cpp
     src/ui/budget_presets.cpp
     src/ui/unified_diff.cpp

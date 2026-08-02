@@ -22,6 +22,7 @@ public:
 
     void set_text_utf8(const std::string& utf8_text);
     std::string text_utf8() const;
+    void insert_text_utf8(const std::string& utf8_text);
 
     void layout(int x, int y, int width, int height);
     void paint(ID2D1RenderTarget* render_target, const ThemeBrushes& brushes) const;

@@ -23,5 +23,9 @@ UshaderGolfOptions to_golf_options(const GolfPassToggles& toggles)
         toggles.inline_single_call_functions,
         toggles.simplify_algebraic_identities,
         toggles.eliminate_common_subexpressions,
+        toggles.fuse_statement_sequences,
+        toggles.frequency_aware_renaming,
+        toggles.factor_repeated_vector_args,
+        toggles.swizzle_alphabet,
     };
 }

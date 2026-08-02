@@ -1,12 +1,15 @@
 use crate::aggressive::{
     compound_assignments, eliminate_common_subexpressions, eliminate_dead_functions,
-    eliminate_dead_locals, eliminate_dead_stores, fold_additive_constants,
-    fold_additive_float_constants, fold_constants, fold_float_constants, increment_decrement,
-    merge_declarations, reduce_constant_vectors, shortest_scientific_form,
+    eliminate_dead_locals, eliminate_dead_stores, factor_repeated_vector_args,
+    fold_additive_constants, fold_additive_float_constants, fold_constants, fold_float_constants,
+    fuse_statement_sequences, hoist_declarations, increment_decrement, merge_declarations, reduce_constant_vectors, shortest_scientific_form,
     simplify_algebraic_identities, strip_duplicate_precision, strip_redundant_braces,
     strip_redundant_parens, strip_trailing_void_return, ternary_from_if_else, AggressiveStats, Item,
 };
+use crate::macro_cse::eliminate_macro_common_subexpressions;
+use crate::budget::estimate_budget;
 use crate::lexer::{tokenize_spaced, Tok};
+use crate::swizzle::{apply_swizzle_alphabet, SwizzleAlphabet};
 use crate::vocab::{
     builtin_functions, builtin_variables, declaration_introducers, keywords, protected_host_names,
 };
@@ -145,6 +148,246 @@ impl Iterator for NameGen {
     }
 }
 
+fn candidate_collides(
+    candidate: &str,
+    scope: &Scope,
+    taken: &HashSet<String>,
+    local_taken: &HashMap<usize, HashSet<String>>,
+    block_scopes: &[BlockScope],
+) -> bool {
+    taken.contains(candidate)
+        || match scope {
+            Scope::Local(indices) => local_taken.iter().any(|(other_idx, names)| {
+                names.contains(candidate)
+                    && indices
+                        .iter()
+                        .any(|idx| !mutually_disjoint(&[*idx, *other_idx], block_scopes))
+            }),
+            Scope::Global => local_taken.values().any(|s| s.contains(candidate)),
+        }
+}
+
+fn register_candidate(
+    candidate: &str,
+    original: &str,
+    scope: &Scope,
+    taken: &mut HashSet<String>,
+    local_taken: &mut HashMap<usize, HashSet<String>>,
+    rename_map: &mut HashMap<String, String>,
+) {
+    match scope {
+        Scope::Global => {
+            taken.insert(candidate.to_string());
+        }
+        Scope::Local(indices) => {
+            for idx in indices {
+                local_taken.entry(*idx).or_default().insert(candidate.to_string());
+            }
+        }
+    }
+    rename_map.insert(original.to_string(), candidate.to_string());
+}
+
+fn shortened_token_text(tok: &Tok, rename_map: &HashMap<String, String>, preceded_by_dot: bool) -> String {
+    match tok {
+        Tok::Ident(name) if preceded_by_dot => name.clone(),
+        Tok::Ident(name) => rename_map.get(name).cloned().unwrap_or_else(|| name.clone()),
+        Tok::Number(raw) => shorten_number(raw),
+        Tok::Punct(c) => c.to_string(),
+        Tok::Preproc(_) => String::new(),
+    }
+}
+
+fn build_items(tokens: &[Tok], had_space: &[bool], rename_map: &HashMap<String, String>) -> (Vec<Item>, usize) {
+    let mut numbers_shortened = 0usize;
+    let mut items: Vec<Item> = Vec::with_capacity(tokens.len());
+    for (idx, tok) in tokens.iter().enumerate() {
+        let preceded_by_dot = idx > 0 && matches!(tokens[idx - 1], Tok::Punct('.'));
+        let text = shortened_token_text(tok, rename_map, preceded_by_dot);
+        if let Tok::Number(raw) = tok {
+            if text != *raw {
+                numbers_shortened += 1;
+            }
+        }
+        items.push(Item {
+            tok: tok.clone(),
+            text,
+            space_before: had_space[idx],
+        });
+    }
+    (items, numbers_shortened)
+}
+
+fn render_code(tokens: &[Tok], had_space: &[bool], rename_map: &HashMap<String, String>) -> String {
+    let (items, _) = build_items(tokens, had_space, rename_map);
+    layout(&items)
+}
+
+fn collect_char_and_bigram_frequency(source: &str) -> (HashMap<char, usize>, HashMap<(char, char), usize>) {
+    let mut chars = HashMap::new();
+    let mut bigrams = HashMap::new();
+    let mut previous = None;
+    for ch in source.chars() {
+        *chars.entry(ch).or_insert(0) += 1;
+        if let Some(prev) = previous {
+            *bigrams.entry((prev, ch)).or_insert(0) += 1;
+        }
+        previous = Some(ch);
+    }
+    (chars, bigrams)
+}
+
+fn candidate_frequency_score(
+    candidate: &str,
+    char_frequency: &HashMap<char, usize>,
+    bigram_frequency: &HashMap<(char, char), usize>,
+) -> usize {
+    let chars: Vec<char> = candidate.chars().collect();
+    let mut score = 0usize;
+    for ch in &chars {
+        score += char_frequency.get(ch).copied().unwrap_or(0);
+    }
+    for pair in chars.windows(2) {
+        score += bigram_frequency.get(&(pair[0], pair[1])).copied().unwrap_or(0) * 2;
+    }
+    score
+}
+
+fn available_candidates(
+    scope: &Scope,
+    taken: &HashSet<String>,
+    local_taken: &HashMap<usize, HashSet<String>>,
+    block_scopes: &[BlockScope],
+    max_len: usize,
+) -> Vec<(usize, String)> {
+    let mut gen = NameGen::new();
+    let mut order = 0usize;
+    let mut out = Vec::new();
+    loop {
+        let candidate = gen.next().unwrap();
+        if candidate.len() > max_len {
+            break;
+        }
+        if !candidate_collides(&candidate, scope, taken, local_taken, block_scopes) {
+            out.push((order, candidate));
+        }
+        order += 1;
+    }
+    out
+}
+
+fn first_available_candidate(
+    scope: &Scope,
+    taken: &HashSet<String>,
+    local_taken: &HashMap<usize, HashSet<String>>,
+    block_scopes: &[BlockScope],
+) -> (usize, String) {
+    let mut gen = NameGen::new();
+    let mut order = 0usize;
+    loop {
+        let candidate = gen.next().unwrap();
+        if !candidate_collides(&candidate, scope, taken, local_taken, block_scopes) {
+            return (order, candidate);
+        }
+        order += 1;
+    }
+}
+
+fn choose_frequency_aware_candidate(
+    original: &str,
+    scope: &Scope,
+    tokens: &[Tok],
+    had_space: &[bool],
+    rename_map: &HashMap<String, String>,
+    taken: &HashSet<String>,
+    local_taken: &HashMap<usize, HashSet<String>>,
+    block_scopes: &[BlockScope],
+    char_frequency: &HashMap<char, usize>,
+    bigram_frequency: &HashMap<(char, char), usize>,
+) -> String {
+    let (naive_order, naive_candidate) = first_available_candidate(scope, taken, local_taken, block_scopes);
+    let candidates = available_candidates(scope, taken, local_taken, block_scopes, 2);
+    if candidates.is_empty() {
+        return naive_candidate;
+    }
+
+    let mut naive_map = rename_map.clone();
+    naive_map.insert(original.to_string(), naive_candidate.clone());
+    let naive_budget = estimate_budget(&render_code(tokens, had_space, &naive_map)).deflate_bytes;
+    let naive_score = candidate_frequency_score(&naive_candidate, char_frequency, bigram_frequency);
+
+    let mut best_candidate = naive_candidate.clone();
+    let mut best_budget = naive_budget;
+    let mut best_score = naive_score;
+    let mut best_order = naive_order;
+
+    for (order, candidate) in candidates {
+        let mut trial_map = rename_map.clone();
+        trial_map.insert(original.to_string(), candidate.clone());
+        let budget = estimate_budget(&render_code(tokens, had_space, &trial_map)).deflate_bytes;
+        let score = candidate_frequency_score(&candidate, char_frequency, bigram_frequency);
+        let is_better = budget < best_budget
+            || (budget == best_budget && score > best_score)
+            || (budget == best_budget && score == best_score && order < best_order);
+        if is_better {
+            best_candidate = candidate;
+            best_budget = budget;
+            best_score = score;
+            best_order = order;
+        }
+    }
+
+    if best_budget == naive_budget && best_score == naive_score {
+        naive_candidate
+    } else {
+        best_candidate
+    }
+}
+
+fn assign_rename_map(
+    renamable: &[(String, Scope)],
+    aggressive: AggressiveOptions,
+    tokens: &[Tok],
+    had_space: &[bool],
+    initial_taken: &HashSet<String>,
+    block_scopes: &[BlockScope],
+    char_frequency: &HashMap<char, usize>,
+    bigram_frequency: &HashMap<(char, char), usize>,
+) -> HashMap<String, String> {
+    let mut taken = initial_taken.clone();
+    let mut local_taken: HashMap<usize, HashSet<String>> = HashMap::new();
+    let mut rename_map: HashMap<String, String> = HashMap::new();
+
+    for (original, scope) in renamable {
+        let candidate = if aggressive.frequency_aware_renaming {
+            choose_frequency_aware_candidate(
+                original,
+                scope,
+                tokens,
+                had_space,
+                &rename_map,
+                &taken,
+                &local_taken,
+                block_scopes,
+                char_frequency,
+                bigram_frequency,
+            )
+        } else {
+            first_available_candidate(scope, &taken, &local_taken, block_scopes).1
+        };
+        register_candidate(
+            &candidate,
+            original,
+            scope,
+            &mut taken,
+            &mut local_taken,
+            &mut rename_map,
+        );
+    }
+
+    rename_map
+}
+
 fn struct_body_ranges(tokens: &[Tok]) -> Vec<(usize, usize)> {
     let mut ranges = Vec::new();
     let mut i = 0;
@@ -243,9 +486,9 @@ fn extend_left_to_params(tokens: &[Tok], body_open: usize) -> usize {
     body_open
 }
 
-struct BlockScope {
-    open: usize,
-    close: usize,
+pub(crate) struct BlockScope {
+    pub(crate) open: usize,
+    pub(crate) close: usize,
 }
 
 fn matching_close_brace(tokens: &[Tok], open: usize) -> Option<usize> {
@@ -270,7 +513,7 @@ fn matching_close_brace(tokens: &[Tok], open: usize) -> Option<usize> {
     }
 }
 
-fn block_scope_tree(tokens: &[Tok]) -> Vec<BlockScope> {
+pub(crate) fn block_scope_tree(tokens: &[Tok]) -> Vec<BlockScope> {
     let struct_bodies = struct_body_ranges(tokens);
     let mut scopes: Vec<BlockScope> = Vec::new();
 
@@ -302,7 +545,7 @@ fn block_scope_tree(tokens: &[Tok]) -> Vec<BlockScope> {
     scopes
 }
 
-fn innermost_scope(pos: usize, scopes: &[BlockScope]) -> Option<usize> {
+pub(crate) fn innermost_scope(pos: usize, scopes: &[BlockScope]) -> Option<usize> {
     scopes
         .iter()
         .enumerate()
@@ -311,7 +554,7 @@ fn innermost_scope(pos: usize, scopes: &[BlockScope]) -> Option<usize> {
         .map(|(idx, _)| idx)
 }
 
-fn mutually_disjoint(indices: &[usize], scopes: &[BlockScope]) -> bool {
+pub(crate) fn mutually_disjoint(indices: &[usize], scopes: &[BlockScope]) -> bool {
     for i in 0..indices.len() {
         for j in (i + 1)..indices.len() {
             let a = &scopes[indices[i]];
@@ -442,6 +685,67 @@ pub struct AggressiveOptions {
     pub inline_single_call_functions: bool,
     pub simplify_algebraic_identities: bool,
     pub eliminate_common_subexpressions: bool,
+    pub fuse_statement_sequences: bool,
+    /// `golf.md` Phase 30.1 -- `Shader Minifier`-style aggressive,
+    /// multi-call-site, multi-statement function inlining
+    /// (`inline::inline_aggressive`). Unlike `inline_single_call_functions`
+    /// above, this pass measures raw-character AND DEFLATE-estimated size
+    /// before committing and can legitimately regress size if mis-tuned on
+    /// an unusual shader, so it stays an explicit opt-in even in the
+    /// `Maximum` built-in profile, exactly per golf.md 30.1's own stated
+    /// rationale -- never flipped on by `all()`/`Maximum`, only by a test
+    /// or UI toggle that opts in explicitly.
+    pub aggressive_inlining: bool,
+    /// `golf.md` Phase 30.2 -- whole-shader cross-statement common
+    /// subexpression elimination via `#define` macro extraction
+    /// (`macro_cse::eliminate_macro_common_subexpressions`), distinct from
+    /// `eliminate_common_subexpressions` above (which is restricted to a
+    /// single straight-line declaration-initializer run).
+    pub macro_cse: bool,
+    /// Whether the active budget preset is compression-based (has a
+    /// `deflate_limit`, e.g. `budget::presets`' "4KB intro"/"8KB intro"/
+    /// "JS13K-style 13KB"/"64KB intro"), as opposed to a raw-character-
+    /// limit preset (e.g. "Shadertoy"/"X/Twitter shader"/the Twigl
+    /// presets) or no preset at all. Per `golf.md` Phase 30.1's own stated
+    /// rule -- "raw and, when the budget preset is compression-based,
+    /// DEFLATE-estimated" -- `macro_cse`'s raw-character gate always
+    /// applies, but its additional whole-buffer DEFLATE gate
+    /// (`macro_cse::eliminate_macro_common_subexpressions`) is only
+    /// meaningful, and is therefore only applied, when this is `true`.
+    /// Defaults to `false`: a caller targeting a raw-character-limit
+    /// preset, or with no preset selected, should not have a genuine
+    /// raw-metric win vetoed by a DEFLATE estimate that reflects a metric
+    /// it never asked to be measured against.
+    pub macro_cse_compression_budget: bool,
+    /// `golf.md` Phase 30.4 -- declaration hoisting / merge-across-function
+    /// (`aggressive::hoist_declarations`), extending `merge_declarations`
+    /// to also relocate a later same-type declaration backward across a
+    /// conservatively-proven-safe straight-line gap.
+    pub hoist_declarations: bool,
+    /// `golf.md` Phase 31.1 -- folds a standalone float counter's
+    /// increment (at the very top or very bottom of a `for` loop body)
+    /// into the `for(...)` header itself (`loop_golf::golf_loop_headers`).
+    /// The first pass in this document to restructure loop semantics
+    /// rather than purely rename/reorder/fold, so -- same stability
+    /// precedent as `fuse_statement_sequences`/`macro_cse`/
+    /// `hoist_declarations` above -- it stays off in the shared `all()`
+    /// helper and is only turned on explicitly by the `Maximum` built-in
+    /// profile or by a test opting in per-value.
+    pub loop_header_golf: bool,
+    /// `golf.md` Phase 31.2 -- `do`/`while` -> `for` and `while` -> `for`
+    /// normalization (`loop_golf::golf_loop_forms`), fired only when the
+    /// resulting form is strictly shorter under both the raw-character and
+    /// DEFLATE-estimated size guards already established by 30.1/31.1 --
+    /// loop-form choice is purely cosmetic and reversible (unlike every
+    /// other pass in this document, it has no correctness precondition
+    /// beyond "never fires unless it strictly shrinks the output"), so it
+    /// is safe to default on wherever it is enabled at all; it is instead
+    /// gated off in `all()` purely for the same output-stability precedent
+    /// already documented next to `loop_header_golf` above.
+    pub loop_form_golf: bool,
+    pub frequency_aware_renaming: bool,
+    pub factor_repeated_vector_args: bool,
+    pub swizzle_alphabet: SwizzleAlphabet,
 }
 
 impl AggressiveOptions {
@@ -463,6 +767,38 @@ impl AggressiveOptions {
             inline_single_call_functions: true,
             simplify_algebraic_identities: true,
             eliminate_common_subexpressions: true,
+            // golf.md Phase 30.3 has shipped (fixture, regression tests,
+            // and the checkbox are all in place), but this field stays off
+            // in the shared `all()` helper -- the same precedent already
+            // set for `frequency_aware_renaming` above -- because `all()`
+            // backs `golf(source, true)`, which roughly a hundred existing
+            // exact-string regression tests across this module call
+            // directly; flipping the shared default here would silently
+            // change dozens of their expected outputs. The pass is instead
+            // turned on explicitly by the C++ "Maximum" built-in profile
+            // (`ui/golf_profile.cpp`) and by any test that opts in per
+            // `AggressiveOptions` value, exactly like 29.1.
+            fuse_statement_sequences: false,
+            // golf.md Phase 30.1: never flipped on by `all()` even though
+            // it has shipped -- see the field doc comment above, this is a
+            // deliberate opt-in-only pass, not a stability-only exclusion
+            // like the two below.
+            aggressive_inlining: false,
+            // golf.md Phase 30.2/30.4: same stability precedent as
+            // `fuse_statement_sequences` above -- both passes have shipped
+            // (fixture, regression tests, and checkbox all in place), but
+            // stay off in the shared `all()` helper so the existing
+            // exact-string regression tests across this module keep their
+            // expected output; turned on explicitly by the `Maximum`
+            // built-in profile or by a test opting in per-value.
+            macro_cse: false,
+            macro_cse_compression_budget: false,
+            hoist_declarations: false,
+            loop_header_golf: false,
+            loop_form_golf: false,
+            frequency_aware_renaming: false,
+            factor_repeated_vector_args: true,
+            swizzle_alphabet: SwizzleAlphabet::Auto,
         }
     }
 
@@ -484,6 +820,16 @@ impl AggressiveOptions {
             inline_single_call_functions: false,
             simplify_algebraic_identities: false,
             eliminate_common_subexpressions: false,
+            fuse_statement_sequences: false,
+            aggressive_inlining: false,
+            macro_cse: false,
+            macro_cse_compression_budget: false,
+            hoist_declarations: false,
+            loop_header_golf: false,
+            loop_form_golf: false,
+            frequency_aware_renaming: false,
+            factor_repeated_vector_args: false,
+            swizzle_alphabet: SwizzleAlphabet::Xyzw,
         }
     }
 }
@@ -547,66 +893,109 @@ fn golf_with_protected_names_impl(
     }
     taken.extend(preproc_referenced_names(&tokens));
 
+    let base_code = render_code(&tokens, &had_space, &HashMap::new());
+    let (char_frequency, bigram_frequency) = collect_char_and_bigram_frequency(&base_code);
+
     let block_scopes = block_scope_tree(&tokens);
-    let mut local_taken: HashMap<usize, HashSet<String>> = HashMap::new();
-    let mut rename_map: HashMap<String, String> = HashMap::new();
-    for (original, scope) in &renamable {
-        let mut gen = NameGen::new();
-        loop {
-            let candidate = gen.next().unwrap();
-            let collides = taken.contains(&candidate)
-                || match scope {
-                    Scope::Local(indices) => local_taken.iter().any(|(other_idx, names)| {
-                        names.contains(&candidate)
-                            && indices
-                                .iter()
-                                .any(|idx| !mutually_disjoint(&[*idx, *other_idx], &block_scopes))
-                    }),
-                    Scope::Global => local_taken.values().any(|s| s.contains(&candidate)),
-                };
-            if collides {
-                continue;
-            }
-            match scope {
-                Scope::Global => {
-                    taken.insert(candidate.clone());
-                }
-                Scope::Local(indices) => {
-                    for idx in indices {
-                        local_taken.entry(*idx).or_default().insert(candidate.clone());
-                    }
-                }
-            }
-            rename_map.insert(original.clone(), candidate);
-            break;
+    let naive_rename_map = assign_rename_map(
+        &renamable,
+        AggressiveOptions {
+            frequency_aware_renaming: false,
+            ..aggressive
+        },
+        &tokens,
+        &had_space,
+        &taken,
+        &block_scopes,
+        &char_frequency,
+        &bigram_frequency,
+    );
+    let rename_map = if aggressive.frequency_aware_renaming {
+        let freq_rename_map = assign_rename_map(
+            &renamable,
+            aggressive,
+            &tokens,
+            &had_space,
+            &taken,
+            &block_scopes,
+            &char_frequency,
+            &bigram_frequency,
+        );
+        let (naive_items, _, _) = run_aggressive_pipeline(
+            &tokens,
+            &had_space,
+            &naive_rename_map,
+            aggressive,
+            &mut None,
+        );
+        let (freq_items, _, _) = run_aggressive_pipeline(
+            &tokens,
+            &had_space,
+            &freq_rename_map,
+            aggressive,
+            &mut None,
+        );
+        let naive_budget = estimate_budget(&layout(&naive_items)).deflate_bytes;
+        let freq_budget = estimate_budget(&layout(&freq_items)).deflate_bytes;
+        if freq_budget < naive_budget {
+            freq_rename_map
+        } else {
+            naive_rename_map
         }
+    } else {
+        naive_rename_map
+    };
+
+    let (items, numbers_shortened, mut aggressive_stats) =
+        run_aggressive_pipeline(&tokens, &had_space, &rename_map, aggressive, trace);
+
+    // Runs once, after the fixpoint pipeline: unlike the passes above,
+    // recoloring a swizzle's letter set never creates or removes an
+    // opportunity for any other pass, so it does not need to be part of
+    // the fixpoint loop (golf.md Phase 29.2).
+    let struct_bodies = struct_body_ranges(&tokens);
+    let snapshot = trace_before_snapshot(trace, &items);
+    let count_before = aggressive_stats.swizzles_recolored;
+    let items = apply_swizzle_alphabet(
+        items,
+        aggressive.swizzle_alphabet,
+        &struct_bodies,
+        &mut aggressive_stats.swizzles_recolored,
+        layout,
+        |code| estimate_budget(code).deflate_bytes,
+    );
+    trace_push_step(trace, "apply_swizzle_alphabet", snapshot, &items, aggressive_stats.swizzles_recolored - count_before);
+
+    let code = layout(&items);
+
+    let output_chars = code.chars().count();
+    let reduction_pct = if input_chars == 0 {
+        0.0
+    } else {
+        (input_chars as f64 - output_chars as f64) / input_chars as f64 * 100.0
+    };
+
+    GolfResult {
+        code,
+        stats: GolfStats {
+            input_chars,
+            output_chars,
+            reduction_pct,
+            renamed_count: rename_map.len(),
+            numbers_shortened,
+            aggressive: aggressive_stats,
+        },
     }
+}
 
-    let mut numbers_shortened = 0usize;
-    let mut items: Vec<Item> = Vec::with_capacity(tokens.len());
-
-    for (idx, tok) in tokens.iter().enumerate() {
-        let preceded_by_dot = idx > 0 && matches!(tokens[idx - 1], Tok::Punct('.'));
-        let text = match tok {
-            Tok::Ident(name) if preceded_by_dot => name.clone(),
-            Tok::Ident(name) => rename_map.get(name).cloned().unwrap_or_else(|| name.clone()),
-            Tok::Number(raw) => {
-                let shortened = shorten_number(raw);
-                if shortened != *raw {
-                    numbers_shortened += 1;
-                }
-                shortened
-            }
-            Tok::Punct(c) => c.to_string(),
-            Tok::Preproc(_) => String::new(),
-        };
-        items.push(Item {
-            tok: tok.clone(),
-            text,
-            space_before: had_space[idx],
-        });
-    }
-
+fn run_aggressive_pipeline(
+    tokens: &[Tok],
+    had_space: &[bool],
+    rename_map: &HashMap<String, String>,
+    aggressive: AggressiveOptions,
+    trace: &mut Option<&mut GolferTrace>,
+) -> (Vec<Item>, usize, AggressiveStats) {
+    let (mut items, numbers_shortened) = build_items(tokens, had_space, rename_map);
     const MAX_FIXPOINT_ITERATIONS: usize = 10;
     let mut aggressive_stats = AggressiveStats::default();
     for _ in 0..MAX_FIXPOINT_ITERATIONS {
@@ -635,6 +1024,17 @@ fn golf_with_protected_names_impl(
             items = crate::inline::inline_single_call_functions(items, &mut aggressive_stats);
             trace_push_step(trace, "inline_single_call_functions", snapshot, &items, aggressive_stats.functions_inlined - count_before);
         }
+        if aggressive.aggressive_inlining {
+            // golf.md Phase 30.1: multi-call-site, multi-statement
+            // function inlining. Run after `inline_single_call_functions`
+            // so the always-beneficial single-call-site path already had
+            // first refusal at each candidate; this pass only considers
+            // whatever functions remain declared.
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.functions_inlined;
+            items = crate::inline::inline_aggressive(items, &mut aggressive_stats);
+            trace_push_step(trace, "inline_aggressive", snapshot, &items, aggressive_stats.functions_inlined - count_before);
+        }
         if aggressive.fold_constants {
             let snapshot = trace_before_snapshot(trace, &items);
             let count_before = aggressive_stats.constants_folded;
@@ -650,6 +1050,12 @@ fn golf_with_protected_names_impl(
             items = reduce_constant_vectors(items, &mut aggressive_stats);
             trace_push_step(trace, "reduce_constant_vectors", snapshot, &items, aggressive_stats.constant_vectors_reduced - count_before);
         }
+        if aggressive.factor_repeated_vector_args {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.vector_args_factored;
+            items = factor_repeated_vector_args(items, &mut aggressive_stats);
+            trace_push_step(trace, "factor_repeated_vector_args", snapshot, &items, aggressive_stats.vector_args_factored - count_before);
+        }
         if aggressive.simplify_algebraic_identities {
             let snapshot = trace_before_snapshot(trace, &items);
             let count_before = aggressive_stats.algebraic_identities_simplified;
@@ -661,6 +1067,49 @@ fn golf_with_protected_names_impl(
             let count_before = aggressive_stats.common_subexpressions_eliminated;
             items = eliminate_common_subexpressions(items, &mut aggressive_stats);
             trace_push_step(trace, "eliminate_common_subexpressions", snapshot, &items, aggressive_stats.common_subexpressions_eliminated - count_before);
+        }
+        if aggressive.macro_cse {
+            // golf.md Phase 30.2: whole-shader cross-statement CSE via
+            // `#define` macro extraction. Deliberately placed after
+            // renaming (Phase 29.1, already applied earlier in this
+            // pipeline) so the macro body benefits from the shortest
+            // already-assigned identifier names, and after the
+            // straight-line-only `eliminate_common_subexpressions` above
+            // so that pass gets first refusal at any run it already
+            // handles -- this pass only looks at what is left.
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.common_subexpressions_eliminated;
+            items = eliminate_macro_common_subexpressions(items, &mut aggressive_stats, aggressive.macro_cse_compression_budget);
+            trace_push_step(trace, "macro_cse", snapshot, &items, aggressive_stats.common_subexpressions_eliminated - count_before);
+        }
+        if aggressive.loop_header_golf {
+            // golf.md Phase 31.1: deliberately runs before
+            // `compound_assignments`/`increment_decrement` below, since
+            // those two passes are free to rewrite a body's `i+=1.`/
+            // `i=i+1.` into a *prefix* `++i` (side-effect-only statements
+            // never need to preserve the pre-increment value, so prefix
+            // and postfix are equivalent there) -- which is a shape this
+            // pass does not special-case, since `golf.md` only documents
+            // the three counter-increment shapes recognized here as they
+            // appear in *un-golfed* Shadertoy source. Running first keeps
+            // the recognized shapes exactly as authored.
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.loop_headers_golfed;
+            items = crate::loop_golf::golf_loop_headers(items, &mut aggressive_stats);
+            trace_push_step(trace, "golf_loop_headers", snapshot, &items, aggressive_stats.loop_headers_golfed - count_before);
+        }
+        if aggressive.loop_form_golf {
+            // golf.md Phase 31.2: `do`/`while` -> `for` and `while` -> `for`
+            // normalization. Runs after `loop_header_golf` above so a `for`
+            // loop that pass just produced is never re-examined here (it
+            // is already a `for` loop), and before `compound_assignments`/
+            // `increment_decrement` below for the same reason documented
+            // on `loop_header_golf`: this pass matches the increment/
+            // condition shapes as they appear in *un-golfed* source.
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.loop_forms_normalized;
+            items = crate::loop_golf::golf_loop_forms(items, &mut aggressive_stats);
+            trace_push_step(trace, "golf_loop_forms", snapshot, &items, aggressive_stats.loop_forms_normalized - count_before);
         }
         if aggressive.compound_assignments {
             let snapshot = trace_before_snapshot(trace, &items);
@@ -685,6 +1134,24 @@ fn golf_with_protected_names_impl(
             let count_before = aggressive_stats.declarations_merged;
             items = merge_declarations(items, &mut aggressive_stats);
             trace_push_step(trace, "merge_declarations", snapshot, &items, aggressive_stats.declarations_merged - count_before);
+        }
+        if aggressive.hoist_declarations {
+            // golf.md Phase 30.4: relocates a later same-type declaration
+            // backward across a conservatively-proven-safe gap to merge
+            // with an earlier one. Run immediately after the
+            // adjacent-only `merge_declarations` above so a chain this
+            // pass builds is itself merged into a single statement using
+            // the exact same comma-declarator machinery.
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.declarations_merged;
+            items = hoist_declarations(items, &mut aggressive_stats);
+            trace_push_step(trace, "hoist_declarations", snapshot, &items, aggressive_stats.declarations_merged - count_before);
+        }
+        if aggressive.fuse_statement_sequences {
+            let snapshot = trace_before_snapshot(trace, &items);
+            let count_before = aggressive_stats.statement_sequences_fused;
+            items = fuse_statement_sequences(items, &mut aggressive_stats);
+            trace_push_step(trace, "fuse_statement_sequences", snapshot, &items, aggressive_stats.statement_sequences_fused - count_before);
         }
         if aggressive.strip_redundant_braces {
             let snapshot = trace_before_snapshot(trace, &items);
@@ -714,27 +1181,7 @@ fn golf_with_protected_names_impl(
             break;
         }
     }
-
-    let code = layout(&items);
-
-    let output_chars = code.chars().count();
-    let reduction_pct = if input_chars == 0 {
-        0.0
-    } else {
-        (input_chars as f64 - output_chars as f64) / input_chars as f64 * 100.0
-    };
-
-    GolfResult {
-        code,
-        stats: GolfStats {
-            input_chars,
-            output_chars,
-            reduction_pct,
-            renamed_count: rename_map.len(),
-            numbers_shortened,
-            aggressive: aggressive_stats,
-        },
-    }
+    (items, numbers_shortened, aggressive_stats)
 }
 
 pub fn golf(source: &str, aggressive: bool) -> GolfResult {
@@ -764,7 +1211,7 @@ fn forms_ambiguous_pair(prev_char: char, next_char: char) -> bool {
     AMBIGUOUS_PAIRS.contains(&s.as_str())
 }
 
-fn layout(items: &[Item]) -> String {
+pub(crate) fn layout(items: &[Item]) -> String {
     let capacity: usize = items
         .iter()
         .map(|it| match &it.tok {
@@ -811,9 +1258,11 @@ fn layout(items: &[Item]) -> String {
 #[cfg(test)]
 mod tests {
     use super::golf;
+    use super::golf_with_options;
     use super::golf_with_protected_names;
     use super::golf_with_protected_names_traced;
     use super::AggressiveOptions;
+    use crate::budget::estimate_budget;
 
     #[test]
     fn trace_pass_order_and_counts_match_fixture_regression() {
@@ -834,15 +1283,19 @@ mod tests {
         // across several passes (dead-local removal, constant folding,
         // compound-assignment/increment-decrement rewriting, declaration
         // merging, brace stripping), the second a clean, all-zero pass
-        // confirming the fixpoint. Sixteen passes per iteration, in the
-        // exact order golf_with_protected_names_impl invokes them.
-        let expected: [(&str, usize); 32] = [
+        // confirming the fixpoint, followed by the single, non-fixpoint
+        // `apply_swizzle_alphabet` step (golf.md Phase 29.2) that always
+        // runs exactly once after the loop closes. Seventeen passes per
+        // iteration plus that one trailing step, in the exact order
+        // golf_with_protected_names_impl invokes them.
+        let expected: [(&str, usize); 35] = [
             ("eliminate_dead_locals", 1),
             ("eliminate_dead_stores", 0),
             ("eliminate_dead_functions", 0),
             ("inline_single_call_functions", 0),
             ("fold_constants", 1),
             ("reduce_constant_vectors", 0),
+            ("factor_repeated_vector_args", 0),
             ("simplify_algebraic_identities", 0),
             ("eliminate_common_subexpressions", 0),
             ("compound_assignments", 2),
@@ -859,6 +1312,7 @@ mod tests {
             ("inline_single_call_functions", 0),
             ("fold_constants", 0),
             ("reduce_constant_vectors", 0),
+            ("factor_repeated_vector_args", 0),
             ("simplify_algebraic_identities", 0),
             ("eliminate_common_subexpressions", 0),
             ("compound_assignments", 0),
@@ -869,6 +1323,7 @@ mod tests {
             ("strip_redundant_parens", 0),
             ("strip_duplicate_precision", 0),
             ("strip_trailing_void_return", 0),
+            ("apply_swizzle_alphabet", 0),
         ];
 
         assert_eq!(trace.steps.len(), expected.len());
@@ -883,7 +1338,14 @@ mod tests {
             AggressiveOptions::none(),
             &[],
         );
-        assert!(trace.steps.is_empty());
+        // `apply_swizzle_alphabet` (Phase 29.2) is the one exception: it is
+        // not gated by an `AggressiveOptions` bool like every other pass,
+        // it is always driven directly by the `swizzle_alphabet` field, so
+        // it still records its single, zero-count, no-op step even when
+        // every other pass is disabled.
+        assert_eq!(trace.steps.len(), 1);
+        assert_eq!(trace.steps[0].pass_name, "apply_swizzle_alphabet");
+        assert_eq!(trace.steps[0].count, 0);
         assert_eq!(result.stats.aggressive.dead_locals_removed, 0);
     }
 
@@ -908,7 +1370,14 @@ mod tests {
             &[],
         );
         assert_eq!(result.stats.aggressive.dead_locals_removed, 1);
-        assert!(trace.steps.iter().all(|s| s.pass_name == "eliminate_dead_locals"));
+        // Every fixpoint-loop step is the one enabled pass; the single
+        // trailing `apply_swizzle_alphabet` step (Phase 29.2, always runs
+        // regardless of which `AggressiveOptions` bools are set) is the
+        // sole, expected exception.
+        assert!(trace
+            .steps
+            .iter()
+            .all(|s| s.pass_name == "eliminate_dead_locals" || s.pass_name == "apply_swizzle_alphabet"));
         assert_eq!(trace.steps.iter().map(|s| s.count).sum::<usize>(), 1);
         let changed_steps: Vec<_> = trace.steps.iter().filter(|s| s.count > 0).collect();
         assert_eq!(changed_steps.len(), 1);
@@ -1024,6 +1493,91 @@ mod tests {
     fn ternary_does_not_confuse_equality_with_assignment() {
         let r = golf("void f(){if(c){a==1.;}else{a==2.;}}", true);
         assert!(r.code.contains("if("), "must not treat == as an assignment: {}", r.code);
+        assert_eq!(r.stats.aggressive.ternaries_from_if_else, 0);
+    }
+
+    // golf.md Phase 31.3 -- guard-clause ternary extension.
+
+    #[test]
+    fn ternary_guard_clause_braced_return_at_tail_of_function() {
+        let r = golf_with_protected_names(
+            "float f(float x){if(x>0.){return 1.;}return -1.;}",
+            AggressiveOptions::all(),
+            &["f".to_string(), "x".to_string()],
+        );
+        assert_eq!(r.code, "float f(float x){return(x>0.)?1.:-1.;}");
+        assert_eq!(r.stats.aggressive.ternaries_from_if_else, 1);
+    }
+
+    #[test]
+    fn ternary_guard_clause_unbraced_return_at_tail_of_function() {
+        let r = golf_with_protected_names(
+            "float f(float x){if(x>0.)return 1.;return -1.;}",
+            AggressiveOptions::all(),
+            &["f".to_string(), "x".to_string()],
+        );
+        assert_eq!(r.code, "float f(float x){return(x>0.)?1.:-1.;}");
+        assert_eq!(r.stats.aggressive.ternaries_from_if_else, 1);
+    }
+
+    #[test]
+    fn ternary_guard_clause_declines_when_an_else_is_present() {
+        // `if(cond){return a;}else{return b;}` has no bare trailing
+        // `return` statement at all (the second `return` is inside the
+        // `else` branch), so it matches neither the assignment-pair form
+        // above (which requires `ident=expr` in both arms, not `return`)
+        // nor the new guard-clause form, whose defining precondition is
+        // "no `else` present" per golf.md Phase 31.3 -- must be left
+        // untouched.
+        let source = "float f(float x){if(x>0.){return 1.;}else{return -1.;}}";
+        let r = golf_with_protected_names(source, AggressiveOptions::all(), &["f".to_string(), "x".to_string()]);
+        assert!(r.code.contains("if("), "an if/else pair of returns is out of scope for this pass: {}", r.code);
+        assert_eq!(r.stats.aggressive.ternaries_from_if_else, 0);
+    }
+
+    #[test]
+    fn ternary_guard_clause_declines_when_not_at_the_tail_of_the_function() {
+        let source = "float f(float x){if(x>0.){return 1.;}return -1.;return -2.;}";
+        let r = golf_with_protected_names(source, AggressiveOptions::all(), &["f".to_string(), "x".to_string()]);
+        assert!(
+            r.code.contains("if("),
+            "must decline when the guard clause is not the tail of the function body: {}",
+            r.code
+        );
+        assert_eq!(r.stats.aggressive.ternaries_from_if_else, 0);
+    }
+
+    #[test]
+    fn ternary_guard_clause_declines_when_the_second_arm_is_not_a_bare_return() {
+        let source = "float f(float x){if(x>0.){return 1.;}g=2.;}";
+        let r = golf_with_protected_names(
+            source,
+            AggressiveOptions::all(),
+            &["f".to_string(), "x".to_string(), "g".to_string()],
+        );
+        assert!(r.code.contains("if("), "must decline when the tail statement is not a return: {}", r.code);
+        assert_eq!(r.stats.aggressive.ternaries_from_if_else, 0);
+    }
+
+    #[test]
+    fn ternary_guard_clause_declines_when_the_arm_is_multi_term() {
+        let source = "float f(float x,float p,float q){if(x>0.){return p+q;}return -1.;}";
+        let r = golf_with_protected_names(
+            source,
+            AggressiveOptions::all(),
+            &["f".to_string(), "x".to_string(), "p".to_string(), "q".to_string()],
+        );
+        assert!(r.code.contains("if("), "must not rewrite a multi-term arm: {}", r.code);
+        assert_eq!(r.stats.aggressive.ternaries_from_if_else, 0);
+    }
+
+    #[test]
+    fn ternary_guard_clause_uses_the_existing_toggle_with_no_new_flag() {
+        let mut off = AggressiveOptions::all();
+        off.ternary_from_if_else = false;
+        let source = "float f(float x){if(x>0.){return 1.;}return -1.;}";
+        let r = golf_with_protected_names(source, off, &["f".to_string(), "x".to_string()]);
+        assert!(r.code.contains("if("), "no dedicated toggle exists, so ternary_from_if_else=false must also suppress the guard-clause form: {}", r.code);
         assert_eq!(r.stats.aggressive.ternaries_from_if_else, 0);
     }
 
@@ -1246,9 +1800,49 @@ mod tests {
 
     #[test]
     fn refuses_to_reduce_a_vector_with_a_non_literal_argument() {
+        // `reduce_constant_vectors` (literal-only) still declines this
+        // input, but golf.md Phase 29.3's `factor_repeated_vector_args`
+        // now legitimately collapses it via a separate, dedicated pass
+        // and its own `vector_args_factored` stat, so the two stats are
+        // asserted independently instead of asserting the pre-Phase-29.3
+        // output was left untouched.
         let r = golf("void f(float w){vec3 a=vec3(w,w,w);}", true);
-        assert_eq!(r.code, "void b(float a){vec3 c=vec3(a,a,a);}");
+        assert_eq!(r.code, "void b(float a){vec3 c=vec3(a);}");
         assert_eq!(r.stats.aggressive.constant_vectors_reduced, 0);
+        assert_eq!(r.stats.aggressive.vector_args_factored, 1);
+    }
+
+    #[test]
+    fn factors_identical_dotted_swizzle_chain_arguments() {
+        // `vec3(p.x,p.x,p.x)` is three token-identical dotted member
+        // chains, not bare identifiers, but still a "pure identifier
+        // expression" per golf.md Phase 29.3, so it factors the same way.
+        let r = golf("void f(vec3 p){vec3 a=vec3(p.x,p.x,p.x);}", true);
+        assert_eq!(r.code, "void b(vec3 a){vec3 c=vec3(a.x);}");
+        assert_eq!(r.stats.aggressive.vector_args_factored, 1);
+    }
+
+    #[test]
+    fn refuses_to_factor_a_vector_with_one_differing_argument() {
+        // golf.md Phase 29.3's own example: `vec4(p.x,p.x,p.x,1.)` is
+        // left alone because the fourth argument is not the same
+        // identifier expression as the other three (a mix of an
+        // identifier chain and a literal never counts as "all-equal").
+        let r = golf("void f(vec3 p){vec4 a=vec4(p.x,p.x,p.x,1.0);}", true);
+        assert_eq!(r.code, "void b(vec3 a){vec4 c=vec4(a.x,a.x,a.x,1.);}");
+        assert_eq!(r.stats.aggressive.vector_args_factored, 0);
+    }
+
+    #[test]
+    fn factoring_and_literal_reduction_never_double_count_the_same_call() {
+        // The literal-only `reduce_constant_vectors` pass and the
+        // identifier-only `factor_repeated_vector_args` pass are
+        // mutually exclusive by construction (golf.md Phase 29.3): a
+        // shader mixing both call shapes must attribute each reduction
+        // to exactly one of the two stats, never both.
+        let r = golf("void f(float w){vec3 a=vec3(1.0,1.0,1.0);vec3 b=vec3(w,w,w);}", true);
+        assert_eq!(r.stats.aggressive.constant_vectors_reduced, 1);
+        assert_eq!(r.stats.aggressive.vector_args_factored, 1);
     }
 
     #[test]
@@ -1435,6 +2029,62 @@ mod tests {
         );
         assert!(!r.code.contains("float keep="), "the spelling \"keep\" must never be handed to a different variable: {}", r.code);
         assert!(r.code.contains("keep"), "the protected uniform must still appear under its own name: {}", r.code);
+    }
+
+    #[test]
+    fn renaming_is_deterministic() {
+        let source = include_str!("../../fixtures/frequency_renaming.glsl");
+        let mut opts = AggressiveOptions::all();
+        opts.frequency_aware_renaming = true;
+        let first = golf_with_protected_names(source, opts, &[]).code;
+        for _ in 0..8 {
+            let again = golf_with_protected_names(source, opts, &[]).code;
+            assert_eq!(again, first);
+        }
+    }
+
+    #[test]
+    fn frequency_aware_renaming_never_worsens_deflate_budget_on_tracked_sources() {
+        let sources = [
+            include_str!("../../fixtures/frequency_renaming.glsl"),
+            "void mainImage(out vec4 fragColor,in vec2 fragCoord){float minimumInside=min(sin(fragCoord.x),sin(fragCoord.y));float minimumInline=min(minimumInside,sin(minimumInside));float minimumFinal=min(minimumInline,minimumInside)+sin(minimumInline);fragColor=vec4(minimumInside+minimumInline+minimumFinal);}",
+            "void mainImage(out vec4 fragColor,in vec2 fragCoord){float floorFactor=floor(fragCoord.x)+floor(fragCoord.y);float fractFactor=fract(fragCoord.x)+fract(fragCoord.y);float finalFactor=floorFactor+fractFactor+floor(floorFactor);fragColor=vec4(floorFactor+fractFactor+finalFactor);}",
+        ];
+
+        for source in sources {
+            let mut naive = AggressiveOptions::all();
+            naive.frequency_aware_renaming = false;
+            let mut freq = AggressiveOptions::all();
+            freq.frequency_aware_renaming = true;
+
+            let naive_result = golf_with_protected_names(source, naive, &[]);
+            let freq_result = golf_with_protected_names(source, freq, &[]);
+
+            assert!(
+                estimate_budget(&freq_result.code).deflate_bytes <= estimate_budget(&naive_result.code).deflate_bytes,
+                "frequency-aware rename must not inflate the DEFLATE estimate\nnaive: {}\nfreq : {}",
+                naive_result.code,
+                freq_result.code
+            );
+        }
+    }
+
+    #[test]
+    fn frequency_aware_renaming_preserves_output_when_no_better_mapping_exists() {
+        let source = include_str!("../../fixtures/frequency_renaming.glsl");
+        let mut naive = AggressiveOptions::all();
+        naive.frequency_aware_renaming = false;
+        let mut freq = AggressiveOptions::all();
+        freq.frequency_aware_renaming = true;
+
+        let naive_result = golf_with_protected_names(source, naive, &[]);
+        let freq_result = golf_with_protected_names(source, freq, &[]);
+
+        assert_eq!(
+            estimate_budget(&freq_result.code).deflate_bytes,
+            estimate_budget(&naive_result.code).deflate_bytes
+        );
+        assert_eq!(freq_result.code, naive_result.code);
     }
 
     #[test]
@@ -1986,5 +2636,192 @@ mod tests {
         let r = golf("float helper(float x){return x*2.0;}", true);
         assert_eq!(r.code, "float b(float a){return a*2.;}");
         assert_eq!(r.stats.aggressive.dead_functions_removed, 0);
+    }
+
+    #[test]
+    fn fuses_a_run_of_adjacent_fusable_statements() {
+        // golf.md Phase 30.3: an assignment, another assignment, and a
+        // postfix increment in a row -- all three are bare comma-operand
+        // shapes -- collapse into one `a,b,c;` statement.
+        let mut opts = AggressiveOptions::none();
+        opts.fuse_statement_sequences = true;
+        let r = golf_with_protected_names(
+            "void f(){float a;float b;a=1.0;b=2.0;a++;}",
+            opts,
+            &["f".to_string(), "a".to_string(), "b".to_string()],
+        );
+        assert_eq!(r.code, "void f(){float a;float b;a=1.,b=2.,a++;}");
+        assert_eq!(r.stats.aggressive.statement_sequences_fused, 1);
+    }
+
+    #[test]
+    fn never_fuses_a_declaration_into_the_sequence() {
+        // The two declarations remain their own statements -- `float` is a
+        // reserved word, so `classify_fusable_statement` declines at the
+        // very first token and the run boundary holds -- only the two
+        // assignments after them fuse together.
+        let mut opts = AggressiveOptions::none();
+        opts.fuse_statement_sequences = true;
+        let r = golf_with_protected_names(
+            "void f(){float a;float b;a=1.0;b=2.0;}",
+            opts,
+            &["f".to_string(), "a".to_string(), "b".to_string()],
+        );
+        assert_eq!(r.code, "void f(){float a;float b;a=1.,b=2.;}");
+        assert_eq!(r.stats.aggressive.statement_sequences_fused, 1);
+    }
+
+    #[test]
+    fn never_fuses_across_an_if_statement_or_its_closing_brace() {
+        // Regression test for the same brace-boundary discipline already
+        // established for the Phase 11 CSE pass (ROADMAP.md Phase 11 bug
+        // #2): a `}` closing an `if` body is a statement boundary exactly
+        // like a `;`, so the run started by `b=3.0;a++;` after the `if`
+        // must never be allowed to reach back across it and swallow
+        // anything from inside -- or before -- the `if`.
+        let mut opts = AggressiveOptions::none();
+        opts.fuse_statement_sequences = true;
+        let r = golf_with_protected_names(
+            "void f(){float a;float b;a=1.0;if(a>0.0){b=2.0;}b=3.0;a++;}",
+            opts,
+            &["f".to_string(), "a".to_string(), "b".to_string()],
+        );
+        assert_eq!(r.code, "void f(){float a;float b;a=1.;if(a>0.){b=2.;}b=3.,a++;}");
+        assert_eq!(r.stats.aggressive.statement_sequences_fused, 1);
+    }
+
+    #[test]
+    fn never_fuses_a_return_statement_into_the_sequence() {
+        // golf.md Phase 30.3's own "never fuses ... a `return`" rule:
+        // `return` is a reserved word, so the run started by the two
+        // assignments must stop right before it.
+        let mut opts = AggressiveOptions::none();
+        opts.fuse_statement_sequences = true;
+        let r = golf_with_protected_names(
+            "float f(float a,float b){a=a+1.0;b=b+1.0;return a+b;}",
+            opts,
+            &["f".to_string(), "a".to_string(), "b".to_string()],
+        );
+        assert_eq!(r.code, "float f(float a,float b){a=a+1.,b=b+1.;return a+b;}");
+        assert_eq!(r.stats.aggressive.statement_sequences_fused, 1);
+    }
+
+    #[test]
+    fn statement_fusion_stays_off_by_default_even_when_fusable_statements_exist() {
+        let r = golf_with_protected_names(
+            "void f(){float a;float b;a=1.0;b=2.0;}",
+            AggressiveOptions::none(),
+            &["f".to_string(), "a".to_string(), "b".to_string()],
+        );
+        assert_eq!(r.code, "void f(){float a;float b;a=1.;b=2.;}");
+        assert_eq!(r.stats.aggressive.statement_sequences_fused, 0);
+    }
+
+    #[test]
+    fn statement_fusion_never_worsens_deflate_budget_on_the_tracked_fixture() {
+        let source = include_str!("../../fixtures/statement_fusion.glsl");
+        let mut fused = AggressiveOptions::all();
+        fused.fuse_statement_sequences = true;
+        let mut unfused = AggressiveOptions::all();
+        unfused.fuse_statement_sequences = false;
+
+        let fused_result = golf_with_options(source, fused);
+        let unfused_result = golf_with_options(source, unfused);
+
+        assert!(
+            estimate_budget(&fused_result.code).deflate_bytes
+                <= estimate_budget(&unfused_result.code).deflate_bytes,
+            "statement fusion must not inflate the DEFLATE estimate\nfused  : {}\nunfused: {}",
+            fused_result.code,
+            unfused_result.code
+        );
+        assert!(fused_result.stats.aggressive.statement_sequences_fused >= 1);
+    }
+
+    #[test]
+    fn hoist_declarations_hoists_across_a_safe_gap() {
+        // golf.md Phase 30.4: the gap statement touches neither `a` nor
+        // `b`, so `b`'s declaration is free to relocate backward and merge
+        // with `a`'s.
+        let mut opts = AggressiveOptions::none();
+        opts.hoist_declarations = true;
+        let r = golf_with_protected_names(
+            "void f(){float a=1.0;g=g+1.0;float b=2.0;}",
+            opts,
+            &["f".to_string(), "a".to_string(), "b".to_string(), "g".to_string()],
+        );
+        assert_eq!(r.code, "void f(){float a=1.,b=2.;g=g+1.;}");
+        assert_eq!(r.stats.aggressive.declarations_merged, 1);
+    }
+
+    #[test]
+    fn hoist_declarations_declines_when_the_gap_touches_the_anchor_declaration() {
+        // golf.md Phase 30.4: the gap statement reads and writes `a`,
+        // which is already referenced by the anchor declaration itself --
+        // the conservative straight-line check must decline rather than
+        // risk reordering that read/write around the hoisted declaration.
+        let mut opts = AggressiveOptions::none();
+        opts.hoist_declarations = true;
+        let r = golf_with_protected_names(
+            "void f(){float a=1.0;a=a+1.0;float b=2.0;}",
+            opts,
+            &["f".to_string(), "a".to_string(), "b".to_string()],
+        );
+        assert_eq!(r.code, "void f(){float a=1.;a=a+1.;float b=2.;}");
+        assert_eq!(r.stats.aggressive.declarations_merged, 0);
+    }
+
+    #[test]
+    fn hoist_declarations_declines_across_a_block_boundary() {
+        // golf.md Phase 30.4: a `{`/`}` of any kind clears every pending
+        // chain outright, even when the nested block declares nothing --
+        // hoisting must never reach into or out of a different scope
+        // depth.
+        let mut opts = AggressiveOptions::none();
+        opts.hoist_declarations = true;
+        let r = golf_with_protected_names(
+            "void f(){float a=1.0;{g=g+1.0;}float b=2.0;}",
+            opts,
+            &["f".to_string(), "a".to_string(), "b".to_string(), "g".to_string()],
+        );
+        assert_eq!(r.code, "void f(){float a=1.;{g=g+1.;}float b=2.;}");
+        assert_eq!(r.stats.aggressive.declarations_merged, 0);
+    }
+
+    #[test]
+    fn hoist_declarations_never_worsens_deflate_budget_on_the_tracked_fixture() {
+        let source = include_str!("../../fixtures/declaration_hoisting.glsl");
+        let mut hoisted = AggressiveOptions::all();
+        hoisted.hoist_declarations = true;
+        let mut unhoisted = AggressiveOptions::all();
+        unhoisted.hoist_declarations = false;
+
+        let hoisted_result = golf_with_options(source, hoisted);
+        let unhoisted_result = golf_with_options(source, unhoisted);
+        eprintln!("HOISTED>>>{}<<<", hoisted_result.code);
+        eprintln!("UNHOISTED>>>{}<<<", unhoisted_result.code);
+
+        assert!(
+            estimate_budget(&hoisted_result.code).deflate_bytes
+                <= estimate_budget(&unhoisted_result.code).deflate_bytes,
+            "declaration hoisting must not inflate the DEFLATE estimate\nhoisted  : {}\nunhoisted: {}",
+            hoisted_result.code,
+            unhoisted_result.code
+        );
+        assert!(hoisted_result.stats.aggressive.declarations_merged >= 1);
+    }
+}
+
+#[cfg(test)]
+mod debug_hoist_fixture {
+    #[test]
+    fn debug_fixture_hoist_only() {
+        use crate::golfer::{golf_with_protected_names, AggressiveOptions};
+        let mut o = AggressiveOptions::none();
+        o.hoist_declarations = true;
+        let source = include_str!("../../fixtures/declaration_hoisting.glsl");
+        let r = golf_with_protected_names(source, o, &["mainImage".to_string()]);
+        eprintln!("DEBUGHOIST>>>{}<<<", r.code);
+        eprintln!("MERGED={}", r.stats.aggressive.declarations_merged);
     }
 }

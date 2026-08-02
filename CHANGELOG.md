@@ -4,7 +4,183 @@ All notable changes to µShader are documented in this file.
 
 ## [Unreleased]
 
-## [3.0.1] - 2026-07-22
+### Added
+
+- `golf.md` Phase 31.1 (`for`-loop header golfing) is now implemented:
+  a new `rust-core/src/loop_golf.rs` module folds the common
+  Shadertoy/demoscene idiom of a standalone float counter incremented
+  at the top or bottom of a `for` loop body (`i++`, `i+=1.`, or
+  `i=i+1.`, the latter proven via `expr.rs`'s `Expr` parser rather
+  than raw-token matching) into the `for(...)` header itself, e.g.
+  `float i=0.;for(int j=0;j<8;j++){i+=1.;...}` becomes
+  `for(float i=0.;i++<8.;){...}`. The rewrite is skipped outright
+  whenever the loop contains a `continue`, whenever the old loop
+  variable is still read inside the body, or whenever the counter's
+  final value is read anywhere after the loop (its scope narrows to
+  the loop once hoisted into the header), matching this document's
+  "decline rather than risk" precedent from Phase 30.4.
+  `AggressiveOptions::loop_header_golf` (off by default, including in
+  `Maximum`, consistent with Phase 30.1's own opt-in-only precedent
+  for behavior-adjacent passes). Added `fixtures/loop_header_golf.glsl`
+  (a raymarching loop and a fractal-iteration loop, the two most
+  common Shadertoy loop shapes), Rust unit tests covering all three
+  increment shapes plus every decline case, a
+  `never_worsens_deflate_budget_on_the_tracked_fixture` regression
+  test, and a new `tests/wgl_equivalence_test.cpp` block proving the
+  fixture renders pixel-identically before and after the rewrite
+  under the Phase 15 WGL equivalence harness.
+
+- `golf.md` Phase 31.2 (`do`/`while` → `for` and `while` → `for`
+  normalization) is now implemented in `rust-core/src/loop_golf.rs`:
+  `golf_loop_forms` rewrites `while(cond){...}` to `for(;cond;){...}`
+  (dropping the condition entirely for `while(true)`, since an empty
+  `for` test clause means "always true") and folds a `do{S}while(cond);`
+  loop into `for(;S,cond;);` via the comma operator whenever `S`'s
+  statements are every one of them already representable as a bare
+  `Expr` (reusing Phase 30.3's `classify_fusable_statement`
+  whitelist) — both rewrites are unconditionally behavior-preserving,
+  so unlike Phase 31.1 this pass carries no `continue`/read-after-loop
+  safety check, only a size guard: it is skipped outright unless the
+  rewritten header is strictly shorter in both raw character count and
+  `budget.rs`'s estimated DEFLATE size, the same char/DEFLATE-size
+  comparison Phase 30.1 already uses. New
+  `AggressiveOptions::loop_form_golf` toggle (off by default, including
+  in `Maximum`). Added `fixtures/loop_form_golf.glsl` (an unbounded
+  `while(true){...break;}` raymarch loop and a fully-fusable
+  accumulation `do`/`while` loop), Rust unit tests for both the
+  `while`→`for` and `do`/`while`→`for` directions, a "no change when
+  not shorter" test for a non-trivial `while` condition (where the
+  `while(`/`for(;`..`;)` boilerplate ties exactly in character count),
+  decline tests for a brace-free `while` body and for a `do`/`while`
+  body containing a `break` or a declaration, and a
+  `never_worsens_deflate_budget_on_the_tracked_fixture` regression
+  test.
+
+- `golf.md` Phase 31.3 (early-return / guard-clause ternary extension)
+  is now implemented: `try_match_ternary` in `rust-core/src/aggressive.rs`
+  is joined by a new `try_match_guard_clause_ternary`, widening
+  `ternary_from_if_else` to also recognize the tail-of-function
+  `if(cond){return a;}return b;` idiom (with or without braces around
+  the `if` arm) and collapse it to `return(cond)?a:b;` — a strictly
+  more constrained special case of the existing assignment-pair form
+  (single trailing `return`, no `else` branch), not a new safety
+  class. The guard-clause form is only recognized when the second
+  `return` sits exactly at a function's closing `}`, reusing
+  `callgraph.rs`'s existing `find_function_definitions` for that
+  boundary check rather than inventing new function-boundary
+  detection. No new toggle: the existing
+  `AggressiveOptions::ternary_from_if_else` flag covers both forms.
+  `fixtures/ternary_from_if_else.glsl` gained a third function
+  (`clampSign`, now called from `mainImage` so it survives dead-function
+  elimination) exercising the guard-clause case, and
+  `rust-core/src/golfer.rs`'s existing ternary test block gained seven
+  new unit tests: braced and unbraced guard-clause collapses, and
+  decline cases for an `else` branch being present, the guard clause
+  not being at the tail of the function, a non-`return` second arm, a
+  multi-term arm, and confirmation that no dedicated toggle exists.
+
+- Phase 35.1 and 35.2 (Fabrice Neyret idiom library) land as a new
+  `rust-core/src/neyret.rs` module: a 10-entry short-rotation-matrix
+  constant catalogue with `suggest_rotation_matrix_constants(source)`
+  detection (matches `mat2(cos(a),sin(a),-sin(a),cos(a))`-style
+  constructions with a provably compile-time-constant angle against
+  the catalogue, within a 0.25° tolerance), and a 5-entry
+  `fract(sin(dot(...)))`-family hash-snippet catalogue
+  (`hash11`/`hash12`/`hash21`/`hash22`/`hash13`) distinct from
+  twigl's `fsnoise`. This is intentionally backend-only: 35.3 and
+  35.4 are not started, since they depend respectively on `golf.md`
+  Phase 30's comma-fusion pass and Phase 33's Golf Tips panel, and
+  neither exists in this codebase yet. See `ROADMAP.md` Phase 35 for
+  the full status note.
+
+- Phase 34 (twigl.app golfing-mode parity) is now fully implemented.
+  `rust-core` adds the `snoise2D`/`snoise3D`/`snoise4D` snippet entries
+  (completing the documented 10-entry geekest-mode snippet library) and
+  exposes the full Twigl export surface through a new `capi` FFI layer
+  (`ushader_twigl_rewrite`, `ushader_twigl_rewrite_mrt`,
+  `ushader_twigl_snippet`, `ushader_twigl_snippets_json`,
+  `ushader_estimate_twigl_geekest_budget`,
+  `ushader_twigl_export_uniform_names_json`). The C++ shell gains a new
+  "Twigl" tab (`Win32TwiglExportPanel`) with the Classic/Geek/Geeker/
+  Geekest mode ladder, an ES 300 es toggle, MRT/backbuffer/sound
+  toggles, one-click snippet-insert buttons (via a new
+  `Win32TextEditor::insert_text_utf8` helper), a live preview, and a
+  byte-budget badge, opened via a new rebindable `Ctrl+Alt+T` chord.
+  `tests/wgl_equivalence_test.cpp` now also compiles/links the
+  `twigl_classic.glsl` and `twigl_geekest.glsl` regression fixtures
+  under the desktop GL WGL context; `twigl_300es.glsl` remains
+  permanently excluded (documented ES300/desktop-GL-core
+  incompatibility). See `ROADMAP.md` Phase 34 for full details.
+
+- `golf.md` Phase 29 (frequency-aware renaming & swizzle-alphabet
+  golf) is now fully implemented:
+  - **29.1** — the opt-in, deterministic frequency-aware
+    identifier-renaming heuristic evaluates a compression-aware
+    alternative mapping against the existing rename order and only
+    keeps it when the final post-pass DEFLATE estimate is strictly
+    better; otherwise output stays on the historical mapping.
+    `AggressiveOptions::frequency_aware_renaming` (default on in
+    `Maximum`, off in `Safe`). Added `fixtures/frequency_renaming.glsl`
+    and Rust regression coverage for determinism and no-regression
+    budget checks.
+  - **29.2** — swizzle-alphabet golf: a new `rust-core/src/swizzle.rs`
+    module recolors every `.xyzw`/`.rgba`/`.stpq` swizzle access to
+    whichever of the three interchangeable alphabets the caller
+    selects, never touching struct member access. `Auto` mode tries
+    all three against the DEFLATE estimator and keeps the smallest.
+    Surfaced as a `swizzle_alphabet` combo in `golf_controls.cpp` /
+    `win32_golf_controls.cpp`, persisted by a `.ushaderprofile` schema
+    minor-version bump (backward compatible: an absent field defaults
+    to `Auto`). Added `fixtures/swizzle_alphabet.glsl` and a new
+    `tests/wgl_equivalence_test.cpp` block that compiles the fixture's
+    `.xyzw` source against a hand-verified `.rgba` recoloring and
+    proves they render pixel-identically under the Phase 15 WGL
+    equivalence harness; the recoloring itself is golden-mastered by a
+    new Rust test against the same fixture so the two can never drift.
+  - **29.3** — non-constant swizzle/vector factoring: a new
+    `factor_repeated_vector_args` pass in `aggressive.rs` generalizes
+    `reduce_constant_vectors` to identical **pure identifier**
+    arguments (`vec3(a,a,a)` -> `vec3(a)`, `vec3(p.x,p.x,p.x)` ->
+    `vec3(p.x)`), never touching a not-all-equal or literal-only call
+    (those remain the sole responsibility of `reduce_constant_vectors`,
+    with no double-counting between the two stats).
+    `AggressiveOptions::factor_repeated_vector_args` (default on).
+    Added `fixtures/vector_argument_factoring.glsl` and four Rust
+    unit tests.
+  - The CLI (`golf`) now reports `vector args factored` and
+    `swizzles recolored` in its human-readable summary and exposes
+    `vector_args_factored`/`swizzles_recolored` as new JSON/CSV report
+    columns, alongside the existing `--profile`/`.ushaderprofile`
+    wiring for all three sub-phases.
+  - See `ROADMAP.md` §6 and `golf.md` §5 for the full status note.
+  Phase 30 (aggressive inlining & cross-statement subexpression golf)
+  remains not started; its one landed-but-unfinished pass,
+  `fuse_statement_sequences`, stays off by default until Phase 30
+  ships its own fixture, tests, and checkbox.
+
+- `golf.md` Phase 30.3 (statement-sequence fusion via the comma
+  operator) is now fully implemented. The `fuse_statement_sequences`
+  pass already existed in `aggressive.rs`; this closes it out with
+  `fixtures/statement_fusion.glsl`, five Rust regression tests (basic
+  fusion, declaration/`if`-brace/`return` boundaries, off-by-default,
+  and a DEFLATE never-worse check), a "Fuse statement sequences"
+  checkbox in the Win32 Controls panel, and full `.ushaderprofile`
+  persistence (`.ushaderprofile` schema bumped to version 3). The
+  `Maximum` built-in profile now explicitly enables it and `Safe`/
+  `None` explicitly disable it, closing a latent gap where the pass
+  silently stayed on in both via `GolfPassToggles`' own default. The
+  shared `AggressiveOptions::all()`/`golf(source, true)` test helper
+  deliberately still keeps it off, the same precedent already set for
+  `frequency_aware_renaming`, since flipping it there would silently
+  change the expected output of roughly a hundred pre-existing
+  exact-string regression tests. Also backfills `factor_repeated_vector_args`
+  and `swizzle_alphabet` (Phase 29.2/29.3) into
+  `docs/ushaderprofile.schema.json` and `docs/ushaderprofile-schema.md`,
+  which had been implemented in `golf_profile.cpp` but never documented.
+  Phase 30.1 (aggressive multi-call-site inlining), 30.2 (whole-shader
+  macro CSE), and 30.4 (declaration hoisting) remain not started.
+
+
 
 UX feedback fix: the Controls panel becomes a persistent right-side
 inspector instead of a full-screen tab, and two actions that were

@@ -43,6 +43,7 @@ int main()
         "inline_single_call_functions",
         "simplify_algebraic_identities",
         "eliminate_common_subexpressions",
+        "frequency_aware_renaming",
         "protected_names",
         "budget_preset",
     };

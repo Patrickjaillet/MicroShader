@@ -57,6 +57,9 @@ private:
 
     RECT aggressive_rect() const;
     RECT preset_rect() const;
+    RECT swizzle_alphabet_rect() const;
     RECT field_rect() const;
     RECT checkbox_hit_rect(int index) const;
+
+    static constexpr int kCheckboxCount = 19;
 };

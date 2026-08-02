@@ -21,7 +21,11 @@ custom borderless window frame.
   folding, declaration merging, function inlining, algebraic identity
   simplification, common subexpression elimination, and more), each
   individually toggleable, plus a protected-names list for identifiers
-  that must never be renamed. Every pass is designed to never change
+  that must never be renamed. The Phase 29 work has also started with
+  an experimental deterministic compression-aware rename chooser,
+  currently kept opt-in until the remaining profile/UI plumbing lands;
+  it falls back to the historical mapping whenever it does not beat
+  the final DEFLATE estimate. Every pass is designed to never change
   shader behavior — each ships with its own regression fixture and
   Rust unit tests.
 - **Live viewport** with the standard Shadertoy uniform set (`iTime`,

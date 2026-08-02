@@ -25,7 +25,21 @@ typedef struct {
     bool inline_single_call_functions;
     bool simplify_algebraic_identities;
     bool eliminate_common_subexpressions;
+    bool fuse_statement_sequences;
+    /*
+     * Phase 29.1 — letter/bigram-frequency-driven identifier assignment.
+     */
     bool frequency_aware_renaming;
+    /*
+     * Phase 29.3 — `vecN(a,a,a)` -> `vecN(a)` identical-identifier-argument
+     * factoring.
+     */
+    bool factor_repeated_vector_args;
+    /*
+     * Phase 29.2 — swizzle-alphabet selection. 0 = Auto, 1 = xyzw,
+     * 2 = rgba, 3 = stpq; any other value falls back to Auto.
+     */
+    int32_t swizzle_alphabet;
 } UshaderGolfOptions;
 
 typedef struct {
@@ -50,6 +64,8 @@ typedef struct {
     uintptr_t functions_inlined;
     uintptr_t algebraic_identities_simplified;
     uintptr_t common_subexpressions_eliminated;
+    uintptr_t vector_args_factored;
+    uintptr_t swizzles_recolored;
 } UshaderGolfStats;
 
 typedef struct {

@@ -1,7 +1,11 @@
-use crate::budget::estimate_budget;
+use crate::budget::{estimate_budget, estimate_twigl_geekest_budget};
 use crate::golfer::{
     golf_with_protected_names, golf_with_protected_names_traced, AggressiveOptions, GolferTrace,
     GolfStats,
+};
+use crate::twigl::{
+    rewrite_twigl_shader, rewrite_twigl_shader_mrt, twigl_export_uniform_names, twigl_snippet,
+    twigl_snippets, TwiglMode,
 };
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
@@ -24,6 +28,12 @@ pub struct UshaderGolfOptions {
     pub inline_single_call_functions: bool,
     pub simplify_algebraic_identities: bool,
     pub eliminate_common_subexpressions: bool,
+    /// golf.md Phase 30.1 -- see `AggressiveOptions::aggressive_inlining`.
+    pub aggressive_inlining: bool,
+    /// golf.md Phase 30.2 -- see `AggressiveOptions::macro_cse`.
+    pub macro_cse: bool,
+    /// golf.md Phase 30.4 -- see `AggressiveOptions::hoist_declarations`.
+    pub hoist_declarations: bool,
 }
 
 impl From<UshaderGolfOptions> for AggressiveOptions {
@@ -45,6 +55,16 @@ impl From<UshaderGolfOptions> for AggressiveOptions {
             inline_single_call_functions: o.inline_single_call_functions,
             simplify_algebraic_identities: o.simplify_algebraic_identities,
             eliminate_common_subexpressions: o.eliminate_common_subexpressions,
+            fuse_statement_sequences: false,
+            aggressive_inlining: o.aggressive_inlining,
+            macro_cse: o.macro_cse,
+            macro_cse_compression_budget: false,
+            hoist_declarations: o.hoist_declarations,
+            loop_header_golf: false,
+            loop_form_golf: false,
+            frequency_aware_renaming: false,
+            factor_repeated_vector_args: false,
+            swizzle_alphabet: crate::swizzle::SwizzleAlphabet::Auto,
         }
     }
 }
@@ -272,6 +292,127 @@ pub extern "C" fn ushader_golf_traced(
     }
 
     match CString::new(result.code) {
+        Ok(c_string) => c_string.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+fn twigl_mode_from_code(mode: i32) -> TwiglMode {
+    match mode {
+        1 => TwiglMode::Geek,
+        2 => TwiglMode::Geeker,
+        3 => TwiglMode::Geekest,
+        _ => TwiglMode::Classic,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ushader_twigl_rewrite(
+    source: *const c_char,
+    mode: i32,
+    es300: bool,
+) -> *mut c_char {
+    if source.is_null() {
+        return std::ptr::null_mut();
+    }
+    let source = match unsafe { CStr::from_ptr(source) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let rewritten = rewrite_twigl_shader(source, twigl_mode_from_code(mode), es300);
+    match CString::new(rewritten) {
+        Ok(c_string) => c_string.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ushader_twigl_rewrite_mrt(
+    source: *const c_char,
+    mode: i32,
+    mrt_targets: u8,
+) -> *mut c_char {
+    if source.is_null() {
+        return std::ptr::null_mut();
+    }
+    let source = match unsafe { CStr::from_ptr(source) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let rewritten = rewrite_twigl_shader_mrt(source, twigl_mode_from_code(mode), mrt_targets);
+    match CString::new(rewritten) {
+        Ok(c_string) => c_string.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ushader_twigl_snippet(name: *const c_char) -> *mut c_char {
+    if name.is_null() {
+        return std::ptr::null_mut();
+    }
+    let name = match unsafe { CStr::from_ptr(name) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match twigl_snippet(name).and_then(|s| CString::new(s).ok()) {
+        Some(c_string) => c_string.into_raw(),
+        None => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ushader_twigl_snippets_json() -> *mut c_char {
+    let mut out = String::from("[");
+    for (i, snippet) in twigl_snippets().iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str("{\"name\":\"");
+        json_escape_into(&mut out, snippet.name);
+        out.push_str("\",\"source\":\"");
+        json_escape_into(&mut out, snippet.source);
+        out.push_str("\"}");
+    }
+    out.push(']');
+    match CString::new(out) {
+        Ok(c_string) => c_string.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ushader_estimate_twigl_geekest_budget(source: *const c_char) -> UshaderBudgetResult {
+    if source.is_null() {
+        return UshaderBudgetResult { raw_bytes: 0, deflate_bytes: 0 };
+    }
+    let source = match unsafe { CStr::from_ptr(source) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return UshaderBudgetResult { raw_bytes: 0, deflate_bytes: 0 },
+    };
+    let result = estimate_twigl_geekest_budget(source);
+    UshaderBudgetResult { raw_bytes: result.raw_bytes, deflate_bytes: result.deflate_bytes }
+}
+
+#[no_mangle]
+pub extern "C" fn ushader_twigl_export_uniform_names_json(
+    mode: i32,
+    mrt_targets: u8,
+    has_backbuffer: bool,
+    has_sound: bool,
+) -> *mut c_char {
+    let names = twigl_export_uniform_names(twigl_mode_from_code(mode), mrt_targets, has_backbuffer, has_sound);
+    let mut out = String::from("[");
+    for (i, name) in names.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push('"');
+        json_escape_into(&mut out, name);
+        out.push('"');
+    }
+    out.push(']');
+    match CString::new(out) {
         Ok(c_string) => c_string.into_raw(),
         Err(_) => std::ptr::null_mut(),
     }

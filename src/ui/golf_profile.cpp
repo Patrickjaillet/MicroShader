@@ -8,7 +8,11 @@
 
 namespace
 {
-    constexpr int kProfileSchemaVersion = 1;
+    // Bumped from 1 to 2 by golf.md Phase 29.2 to add the `swizzle_alphabet`
+    // field. The reader stays backward-compatible with profiles saved
+    // before this field existed: an absent field defaults to `Auto` (0),
+    // see find_int_field below.
+    constexpr int kProfileSchemaVersion = 3;
 
     std::string json_escape(const std::string& value)
     {
@@ -105,6 +109,23 @@ namespace
             return false;
         }
         return default_value;
+    }
+
+    int find_int_field(const std::string& text, const std::string& key, int default_value)
+    {
+        std::string slice = find_field_slice(text, key);
+        if (slice.empty())
+        {
+            return default_value;
+        }
+        try
+        {
+            return std::stoi(slice);
+        }
+        catch (...)
+        {
+            return default_value;
+        }
     }
 
     std::string find_string_field(const std::string& text, const std::string& key)
@@ -209,7 +230,11 @@ namespace
             && a.eliminate_dead_functions == b.eliminate_dead_functions
             && a.inline_single_call_functions == b.inline_single_call_functions
             && a.simplify_algebraic_identities == b.simplify_algebraic_identities
-            && a.eliminate_common_subexpressions == b.eliminate_common_subexpressions;
+            && a.eliminate_common_subexpressions == b.eliminate_common_subexpressions
+            && a.fuse_statement_sequences == b.fuse_statement_sequences
+            && a.frequency_aware_renaming == b.frequency_aware_renaming
+            && a.factor_repeated_vector_args == b.factor_repeated_vector_args
+            && a.swizzle_alphabet == b.swizzle_alphabet;
     }
 
     std::string last_profile_path_file()
@@ -244,6 +269,10 @@ std::string serialize_golf_profile(const GolfPassToggles& toggles, const std::st
     append_bool_field(out, "inline_single_call_functions", toggles.inline_single_call_functions, true);
     append_bool_field(out, "simplify_algebraic_identities", toggles.simplify_algebraic_identities, true);
     append_bool_field(out, "eliminate_common_subexpressions", toggles.eliminate_common_subexpressions, true);
+    append_bool_field(out, "fuse_statement_sequences", toggles.fuse_statement_sequences, true);
+    append_bool_field(out, "frequency_aware_renaming", toggles.frequency_aware_renaming, true);
+    append_bool_field(out, "factor_repeated_vector_args", toggles.factor_repeated_vector_args, true);
+    append_int_field(out, "swizzle_alphabet", toggles.swizzle_alphabet, false);
     out += "  \"protected_names\": \"" + json_escape(protected_names) + "\",\n";
     out += "  \"budget_preset\": \"" + json_escape(budget_preset_name(budget_preset_index)) + "\"\n";
     out += "}\n";
@@ -274,6 +303,15 @@ bool deserialize_golf_profile(const std::string& text, GolfPassToggles& toggles,
     parsed.inline_single_call_functions = find_bool_field(text, "inline_single_call_functions", parsed.inline_single_call_functions);
     parsed.simplify_algebraic_identities = find_bool_field(text, "simplify_algebraic_identities", parsed.simplify_algebraic_identities);
     parsed.eliminate_common_subexpressions = find_bool_field(text, "eliminate_common_subexpressions", parsed.eliminate_common_subexpressions);
+    // Absent in profiles saved before schema version 3 -- defaults to
+    // `true` via GolfPassToggles' own default member initializer, matching
+    // every other pre-Phase-29 pass toggle's backward-compatibility rule.
+    parsed.fuse_statement_sequences = find_bool_field(text, "fuse_statement_sequences", parsed.fuse_statement_sequences);
+    parsed.frequency_aware_renaming = find_bool_field(text, "frequency_aware_renaming", parsed.frequency_aware_renaming);
+    parsed.factor_repeated_vector_args = find_bool_field(text, "factor_repeated_vector_args", parsed.factor_repeated_vector_args);
+    // Absent in profiles saved before schema version 2 — defaults to
+    // `Auto` (0) via GolfPassToggles' own default member initializer.
+    parsed.swizzle_alphabet = find_int_field(text, "swizzle_alphabet", parsed.swizzle_alphabet);
 
     toggles = parsed;
     protected_names = find_string_field(text, "protected_names");
@@ -283,7 +321,16 @@ bool deserialize_golf_profile(const std::string& text, GolfPassToggles& toggles,
 
 GolfPassToggles builtin_profile_maximum()
 {
-    return GolfPassToggles{};
+    GolfPassToggles toggles{};
+    // golf.md Phase 29.1: default on in "Maximum", default off in "Safe" —
+    // gated purely for user predictability/diffability (renaming character
+    // choice never changes correctness either way).
+    toggles.frequency_aware_renaming = true;
+    // golf.md Phase 30.3: default on in "Maximum" (redundant with
+    // GolfPassToggles' own default member initializer, kept explicit here
+    // for the same self-documentation reason 29.1's line above exists).
+    toggles.fuse_statement_sequences = true;
+    return toggles;
 }
 
 GolfPassToggles builtin_profile_safe()
@@ -306,6 +353,10 @@ GolfPassToggles builtin_profile_safe()
     toggles.inline_single_call_functions = false;
     toggles.simplify_algebraic_identities = false;
     toggles.eliminate_common_subexpressions = false;
+    toggles.fuse_statement_sequences = false;
+    toggles.frequency_aware_renaming = false;
+    toggles.factor_repeated_vector_args = false;
+    toggles.swizzle_alphabet = static_cast<int>(SwizzleAlphabetChoice::Xyzw);
     return toggles;
 }
 
@@ -329,6 +380,10 @@ GolfPassToggles builtin_profile_none()
     toggles.inline_single_call_functions = false;
     toggles.simplify_algebraic_identities = false;
     toggles.eliminate_common_subexpressions = false;
+    toggles.fuse_statement_sequences = false;
+    toggles.frequency_aware_renaming = false;
+    toggles.factor_repeated_vector_args = false;
+    toggles.swizzle_alphabet = static_cast<int>(SwizzleAlphabetChoice::Xyzw);
     return toggles;
 }
 

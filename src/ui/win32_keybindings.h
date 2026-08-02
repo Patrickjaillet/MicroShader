@@ -20,6 +20,7 @@ struct Win32Keybindings
     Win32KeyChord open_file;
     Win32KeyChord save_file;
     Win32KeyChord close_tab;
+    Win32KeyChord twigl_export_toggle;
 };
 
 Win32Keybindings default_win32_keybindings();

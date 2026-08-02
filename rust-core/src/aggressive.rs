@@ -1,6 +1,6 @@
 use crate::expr::{parse_expr, Expr, ExprKind};
 use crate::lexer::Tok;
-use crate::vocab::type_keywords;
+use crate::vocab::{keywords, type_keywords};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, PartialEq)]
@@ -28,13 +28,20 @@ pub struct AggressiveStats {
     pub functions_inlined: usize,
     pub algebraic_identities_simplified: usize,
     pub common_subexpressions_eliminated: usize,
+    pub statement_sequences_fused: usize,
+    pub vector_args_factored: usize,
+    pub swizzles_recolored: usize,
+    /// `golf.md` Phase 31.1 -- see `AggressiveOptions::loop_header_golf`.
+    pub loop_headers_golfed: usize,
+    /// `golf.md` Phase 31.2 -- see `AggressiveOptions::loop_form_golf`.
+    pub loop_forms_normalized: usize,
 }
 
 pub(crate) fn is_unary_prefix(c: char) -> bool {
     matches!(c, '-' | '+' | '!' | '~')
 }
 
-fn find_ident(items: &[Item], i: usize) -> Option<&str> {
+pub(crate) fn find_ident(items: &[Item], i: usize) -> Option<&str> {
     match items.get(i).map(|it| &it.tok) {
         Some(Tok::Ident(s)) => Some(s.as_str()),
         _ => None,
@@ -96,7 +103,7 @@ pub fn eliminate_dead_locals(items: Vec<Item>, stats: &mut AggressiveStats) -> V
     while i < items.len() {
         let at_boundary = out
             .last()
-            .is_none_or(|it: &Item| matches!(it.tok, Tok::Punct(';') | Tok::Punct('{') | Tok::Punct('}')));
+            .map(|it: &Item| matches!(it.tok, Tok::Punct(';') | Tok::Punct('{') | Tok::Punct('}'))).unwrap_or(true);
 
         if at_boundary {
             if let Some(end) = try_remove_dead_decl(&items, i, type_kw, &freq) {
@@ -778,7 +785,7 @@ fn is_vector_or_matrix_constructor(name: &str) -> bool {
     )
 }
 
-fn expr_is_pure(e: &Expr) -> bool {
+pub(crate) fn expr_is_pure(e: &Expr) -> bool {
     match &e.kind {
         ExprKind::Number(_) | ExprKind::Ident(_) => true,
         ExprKind::Unary(_, inner) | ExprKind::Paren(inner) => expr_is_pure(inner),
@@ -796,12 +803,12 @@ struct CachedExpr {
     var_name: String,
 }
 
-struct SubDecl {
-    name_idx: usize,
-    initializer: Option<(Expr, usize, usize)>,
+pub(crate) struct SubDecl {
+    pub(crate) name_idx: usize,
+    pub(crate) initializer: Option<(Expr, usize, usize)>,
 }
 
-fn parse_declaration_statement(items: &[Item], start: usize) -> Option<(String, Vec<SubDecl>, usize)> {
+pub(crate) fn parse_declaration_statement(items: &[Item], start: usize) -> Option<(String, Vec<SubDecl>, usize)> {
     let type_kw = type_keywords();
     let type_name = match items.get(start).map(|it| &it.tok) {
         Some(Tok::Ident(t)) if type_kw.contains(t.as_str()) => t.clone(),
@@ -883,7 +890,7 @@ pub fn eliminate_common_subexpressions(items: Vec<Item>, stats: &mut AggressiveS
 
         let at_boundary = out
             .last()
-            .is_none_or(|it: &Item| matches!(it.tok, Tok::Punct(';') | Tok::Punct('{') | Tok::Punct('}')));
+            .map(|it: &Item| matches!(it.tok, Tok::Punct(';') | Tok::Punct('{') | Tok::Punct('}'))).unwrap_or(true);
 
         if at_boundary {
             if let Some((type_name, subs, end)) = parse_declaration_statement(&items, i) {
@@ -1019,6 +1026,92 @@ pub fn reduce_constant_vectors(items: Vec<Item>, stats: &mut AggressiveStats) ->
     out
 }
 
+/// Matches a `vecN(...)` call whose arguments are all token-identical
+/// **pure identifier expressions** — a bare identifier or a dotted
+/// member/swizzle chain built only from `Ident`/`Punct('.')` tokens, e.g.
+/// `a`, `n`, `p.x` — never a call, operator, or literal-only argument
+/// (those stay the sole responsibility of `reduce_constant_vectors`
+/// above, which this pass never overlaps with since it requires at
+/// least one identifier component). Returns the call's closing `)`
+/// index plus the token range of the representative argument to keep.
+fn try_match_repeated_vector_identifier_args(items: &[Item], i: usize) -> Option<(usize, usize, usize)> {
+    let arity = vec_arity(find_ident(items, i)?)?;
+    if !matches!(items.get(i + 1).map(|it| &it.tok), Some(Tok::Punct('('))) {
+        return None;
+    }
+    let mut idx = i + 2;
+    let mut first_range: Option<(usize, usize)> = None;
+    let mut first_text: Option<String> = None;
+    for k in 0..arity {
+        let start = idx;
+        let mut expect_component = true;
+        let mut has_ident = false;
+        loop {
+            match items.get(idx).map(|it| &it.tok) {
+                Some(Tok::Ident(_)) if expect_component => {
+                    has_ident = true;
+                    idx += 1;
+                    expect_component = false;
+                }
+                Some(Tok::Punct('.')) if !expect_component => {
+                    idx += 1;
+                    expect_component = true;
+                }
+                _ => break,
+            }
+        }
+        // Reject an empty capture and a dangling trailing dot alike.
+        if idx == start || expect_component || !has_ident {
+            return None;
+        }
+        let text: String = items[start..idx].iter().map(|it| it.text.as_str()).collect();
+        match &first_text {
+            None => {
+                first_text = Some(text);
+                first_range = Some((start, idx));
+            }
+            Some(ft) if *ft != text => return None,
+            Some(_) => {}
+        }
+        if k + 1 < arity {
+            if !matches!(items.get(idx).map(|it| &it.tok), Some(Tok::Punct(','))) {
+                return None;
+            }
+            idx += 1;
+        }
+    }
+    if !matches!(items.get(idx).map(|it| &it.tok), Some(Tok::Punct(')'))) {
+        return None;
+    }
+    let (fs, fe) = first_range.unwrap();
+    Some((idx, fs, fe))
+}
+
+/// Generalizes `reduce_constant_vectors` to identical, all-equal
+/// **identifier** arguments: `vec3(a,a,a)` -> `vec3(a)`,
+/// `vec2(n,n)` -> `vec2(n)`. `vec4(p.x,p.x,p.x,1.)` is left untouched
+/// since the arguments are not all-equal (see golf.md Phase 29.3).
+pub fn factor_repeated_vector_args(items: Vec<Item>, stats: &mut AggressiveStats) -> Vec<Item> {
+    let mut out: Vec<Item> = Vec::with_capacity(items.len());
+    let mut i = 0;
+    while i < items.len() {
+        if let Some((close_idx, arg_start, arg_end)) = try_match_repeated_vector_identifier_args(&items, i) {
+            out.push(items[i].clone());
+            out.push(items[i + 1].clone());
+            for k in arg_start..arg_end {
+                out.push(items[k].clone());
+            }
+            out.push(items[close_idx].clone());
+            stats.vector_args_factored += 1;
+            i = close_idx + 1;
+            continue;
+        }
+        out.push(items[i].clone());
+        i += 1;
+    }
+    out
+}
+
 fn void_function_body_closers(items: &[Item]) -> std::collections::HashSet<usize> {
     let mut closers = std::collections::HashSet::new();
     let mut i = 0;
@@ -1070,7 +1163,7 @@ fn void_function_body_closers(items: &[Item]) -> std::collections::HashSet<usize
     closers
 }
 
-fn is_statement_boundary(items: &[Item], idx: usize) -> bool {
+pub(crate) fn is_statement_boundary(items: &[Item], idx: usize) -> bool {
     if idx == 0 {
         return true;
     }
@@ -1211,9 +1304,18 @@ pub fn increment_decrement(items: Vec<Item>, stats: &mut AggressiveStats) -> Vec
     out
 }
 
+/// `golf.md` Phase 31.3 -- distinguishes the original assignment-pair
+/// ternary target (`if(c){a=x;}else{a=y;}`, `ident_idx` pointing at `a`)
+/// from the new guard-clause return target
+/// (`if(c){return x;}return y;`, which has no assigned identifier at all).
+enum TernaryTarget {
+    Assign(usize),
+    Return,
+}
+
 struct TernaryMatch {
     end: usize,
-    ident_idx: usize,
+    target: TernaryTarget,
     cond: (usize, usize),
     x: (usize, usize),
     y: (usize, usize),
@@ -1294,16 +1396,114 @@ fn try_match_ternary(items: &[Item], i: usize) -> Option<TernaryMatch> {
         end += 1;
     }
 
-    Some(TernaryMatch { end, ident_idx, cond: (cond_start, cond_end), x: (x_start, x_end), y: (y_start, y_end) })
+    Some(TernaryMatch {
+        end,
+        target: TernaryTarget::Assign(ident_idx),
+        cond: (cond_start, cond_end),
+        x: (x_start, x_end),
+        y: (y_start, y_end),
+    })
+}
+
+/// `golf.md` Phase 31.3 -- widens `try_match_ternary` to also recognize the
+/// common guard-clause idiom `if(cond){return a;}return b;` at the tail of
+/// a function body. A strictly more constrained special case of the
+/// assignment form above (single trailing `return` after the `if`, no
+/// `else` present), not a new safety class: it reuses the exact same
+/// `cond`/`x`/`y` span extraction and the exact same
+/// `skip_balanced`/`scan_primary` primitives, only the target (`a=`
+/// vs `return`) and the no-`else` / tail-of-function-body preconditions
+/// differ. `tail_closers` is the set of function-body-closing `}`
+/// positions, computed once per pass via `callgraph.rs`'s existing
+/// `find_function_definitions` rather than inventing new function-boundary
+/// detection.
+fn try_match_guard_clause_ternary(items: &[Item], i: usize, tail_closers: &HashSet<usize>) -> Option<TernaryMatch> {
+    if !matches!(&items.get(i)?.tok, Tok::Ident(s) if s == "if") {
+        return None;
+    }
+    if !is_statement_boundary(items, i) {
+        return None;
+    }
+    if !matches!(items.get(i + 1).map(|it| &it.tok), Some(Tok::Punct('('))) {
+        return None;
+    }
+    let cond_start = i + 2;
+    let after_paren = skip_balanced(items, i + 1, '(', ')')?;
+    let cond_end = after_paren - 1;
+
+    let mut j = after_paren;
+    let braced1 = matches!(items.get(j).map(|it| &it.tok), Some(Tok::Punct('{')));
+    if braced1 {
+        j += 1;
+    }
+    if !matches!(&items.get(j)?.tok, Tok::Ident(s) if s == "return") {
+        return None;
+    }
+    let x_start = j + 1;
+    let x_end = scan_primary(items, x_start)?;
+    if !matches!(items.get(x_end).map(|it| &it.tok), Some(Tok::Punct(';'))) {
+        return None;
+    }
+    let mut k = x_end + 1;
+    if braced1 {
+        if !matches!(items.get(k).map(|it| &it.tok), Some(Tok::Punct('}'))) {
+            return None;
+        }
+        k += 1;
+    }
+
+    // No `else` -- the guard-clause form is only recognized when the `if`
+    // has no `else` branch at all, matching golf.md Phase 31.3's own
+    // description of this as a strictly more constrained special case.
+    if !matches!(&items.get(k)?.tok, Tok::Ident(s) if s == "return") {
+        return None;
+    }
+    let y_start = k + 1;
+    let y_end = scan_primary(items, y_start)?;
+    if !matches!(items.get(y_end).map(|it| &it.tok), Some(Tok::Punct(';'))) {
+        return None;
+    }
+    let end = y_end + 1;
+
+    // Only recognized at the tail of a function body -- reused verbatim
+    // from `callgraph.rs`'s function-boundary detection rather than a new
+    // safety class, per golf.md Phase 31.3.
+    if !tail_closers.contains(&end) {
+        return None;
+    }
+
+    Some(TernaryMatch {
+        end,
+        target: TernaryTarget::Return,
+        cond: (cond_start, cond_end),
+        x: (x_start, x_end),
+        y: (y_start, y_end),
+    })
+}
+
+fn tail_of_function_closers(items: &[Item]) -> HashSet<usize> {
+    crate::callgraph::find_function_definitions(items)
+        .into_iter()
+        .map(|def| def.body_close)
+        .collect()
 }
 
 pub fn ternary_from_if_else(items: Vec<Item>, stats: &mut AggressiveStats) -> Vec<Item> {
+    let tail_closers = tail_of_function_closers(&items);
     let mut out: Vec<Item> = Vec::with_capacity(items.len());
     let mut i = 0;
     while i < items.len() {
-        if let Some(m) = try_match_ternary(&items, i) {
-            out.push(items[m.ident_idx].clone());
-            out.push(Item { tok: Tok::Punct('='), text: "=".to_string(), space_before: false });
+        let matched = try_match_ternary(&items, i).or_else(|| try_match_guard_clause_ternary(&items, i, &tail_closers));
+        if let Some(m) = matched {
+            match m.target {
+                TernaryTarget::Assign(ident_idx) => {
+                    out.push(items[ident_idx].clone());
+                    out.push(Item { tok: Tok::Punct('='), text: "=".to_string(), space_before: false });
+                }
+                TernaryTarget::Return => {
+                    out.push(Item { tok: Tok::Ident("return".to_string()), text: "return".to_string(), space_before: true });
+                }
+            }
             out.push(Item { tok: Tok::Punct('('), text: "(".to_string(), space_before: false });
             out.extend_from_slice(&items[m.cond.0..m.cond.1]);
             out.push(Item { tok: Tok::Punct(')'), text: ")".to_string(), space_before: false });
@@ -1322,6 +1522,203 @@ pub fn ternary_from_if_else(items: Vec<Item>, stats: &mut AggressiveStats) -> Ve
     out
 }
 
+/// One statement, found by `classify_fusable_statement` starting exactly at
+/// `start`. `expr_end` is the index just past the statement's own content
+/// (i.e. at its terminating `;`); `stmt_end` is the index just past that
+/// `;`, i.e. where the next statement (if any) begins.
+pub(crate) struct FusableStmt {
+    pub(crate) start: usize,
+    pub(crate) expr_end: usize,
+    pub(crate) stmt_end: usize,
+}
+
+const ASSIGN_COMPOUND_OPS: &[char] = &['+', '-', '*', '/', '%'];
+
+/// An lvalue chain for fusion purposes: a bare identifier followed by any
+/// number of `.member` or `[index]` accesses -- deliberately no call, since
+/// a call result is never assignable. This is `scan_primary`'s postfix
+/// chain with the `(...)` call case removed.
+pub(crate) fn scan_lvalue_chain(items: &[Item], start: usize) -> Option<usize> {
+    if !matches!(items.get(start).map(|it| &it.tok), Some(Tok::Ident(_))) {
+        return None;
+    }
+    let mut i = start + 1;
+    loop {
+        match items.get(i).map(|it| &it.tok) {
+            Some(Tok::Punct('.')) => {
+                if matches!(items.get(i + 1).map(|it| &it.tok), Some(Tok::Ident(_))) {
+                    i += 2;
+                } else {
+                    return None;
+                }
+            }
+            Some(Tok::Punct('[')) => i = skip_balanced(items, i, '[', ']')?,
+            _ => break,
+        }
+    }
+    Some(i)
+}
+
+/// Matches `=` or a two-character compound-assignment operator (`+=`, `-=`,
+/// `*=`, `/=`, `%=`) starting at `i`, returning the index just past it.
+/// Explicitly declines `==` (a comparison, not an assignment) rather than
+/// misreading its leading `=`.
+pub(crate) fn assign_op_end(items: &[Item], i: usize) -> Option<usize> {
+    let c1 = match items.get(i).map(|it| &it.tok) {
+        Some(Tok::Punct(c)) => *c,
+        _ => return None,
+    };
+    if ASSIGN_COMPOUND_OPS.contains(&c1) {
+        let next = items.get(i + 1)?;
+        return if !next.space_before && matches!(next.tok, Tok::Punct('=')) {
+            Some(i + 2)
+        } else {
+            None
+        };
+    }
+    if c1 == '=' {
+        let is_double_equals = matches!(items.get(i + 1).map(|it| &it.tok), Some(Tok::Punct('=')))
+            && !items.get(i + 1).map(|it| it.space_before).unwrap_or(true);
+        return if is_double_equals { None } else { Some(i + 1) };
+    }
+    None
+}
+
+/// Recognizes one of the three statement shapes GLSL allows as a bare
+/// comma-operator operand, starting exactly at `start`: an assignment
+/// (`lvalue (=|+=|-=|*=|/=|%=) Expr;`), a postfix increment/decrement
+/// (`lvalue++;` / `lvalue--;`), or a call statement (`ident(args);`).
+/// Declarations, control-flow statements (`if`/`for`/`while`/`do`/`switch`),
+/// and `return`/`break`/`continue`/`discard` are all rejected up front via
+/// the shared `keywords()` list -- the same "never invent a new safety
+/// class" reuse this module already relies on elsewhere -- since none of
+/// those can appear inside a comma-expression at all. Anything this
+/// function cannot parse all the way through to its own terminating `;`
+/// returns `None`, matching the rest of this module's "skip, never guess"
+/// discipline; in particular no purity check is needed here (unlike the
+/// CSE pass above), because the comma operator evaluates every operand in
+/// left-to-right order, so fusing any run of these three statement shapes
+/// is behavior-preserving regardless of what side effects they carry.
+pub(crate) fn classify_fusable_statement(items: &[Item], start: usize) -> Option<FusableStmt> {
+    if let Some(kwd) = find_ident(items, start) {
+        if keywords().contains(kwd) {
+            return None;
+        }
+    }
+
+    if let Some(lhs_end) = scan_lvalue_chain(items, start) {
+        if let Some(after_op) = assign_op_end(items, lhs_end) {
+            let rhs = parse_expr(items, after_op)?;
+            if matches!(items.get(rhs.end).map(|it| &it.tok), Some(Tok::Punct(';'))) {
+                return Some(FusableStmt {
+                    start,
+                    expr_end: rhs.end,
+                    stmt_end: rhs.end + 1,
+                });
+            }
+        } else if let (Some(Tok::Punct(c1)), Some(second)) =
+            (items.get(lhs_end).map(|it| &it.tok), items.get(lhs_end + 1))
+        {
+            let c1 = *c1;
+            if let Tok::Punct(c2) = second.tok {
+                if !second.space_before
+                    && ((c1 == '+' && c2 == '+') || (c1 == '-' && c2 == '-'))
+                    && matches!(items.get(lhs_end + 2).map(|it| &it.tok), Some(Tok::Punct(';')))
+                {
+                    return Some(FusableStmt {
+                        start,
+                        expr_end: lhs_end + 2,
+                        stmt_end: lhs_end + 3,
+                    });
+                }
+            }
+        }
+    }
+
+    if matches!(items.get(start).map(|it| &it.tok), Some(Tok::Ident(_)))
+        && matches!(items.get(start + 1).map(|it| &it.tok), Some(Tok::Punct('(')))
+    {
+        let after_call = skip_balanced(items, start + 1, '(', ')')?;
+        if matches!(items.get(after_call).map(|it| &it.tok), Some(Tok::Punct(';'))) {
+            return Some(FusableStmt {
+                start,
+                expr_end: after_call,
+                stmt_end: after_call + 1,
+            });
+        }
+    }
+
+    None
+}
+
+/// Grows a maximal run of adjacent fusable statements starting at `start`
+/// (which must already be a statement boundary). Stops -- without
+/// consuming it -- at the first statement `classify_fusable_statement`
+/// declines, which includes every declaration, control-flow statement,
+/// `return`, and the closing `}`/opening `{` of the enclosing block itself
+/// (neither is ever the start of an `Ident`, so `classify_fusable_statement`
+/// always declines there), so a run can never reach across a scope
+/// boundary.
+pub(crate) fn collect_fusable_run(items: &[Item], start: usize) -> Vec<FusableStmt> {
+    let mut run = Vec::new();
+    let mut i = start;
+    while let Some(stmt) = classify_fusable_statement(items, i) {
+        i = stmt.stmt_end;
+        run.push(stmt);
+    }
+    run
+}
+
+/// Mirrors `Shader Minifier`'s `--no-sequence` flag in reverse: that flag
+/// *disables* comma-fusion, meaning fusion is the default, aggressive
+/// behavior this pass adds. A maximal run of two or more adjacent fusable
+/// expression-statements (assignments, postfix increment/decrement, and
+/// call statements -- see `classify_fusable_statement`) is rewritten into a
+/// single `a=b,c++,f(d);`-style statement.
+///
+/// Boundary detection reuses `is_statement_boundary`, which looks directly
+/// at the previous token in `items` rather than at an incrementally built
+/// output buffer, so this pass cannot reintroduce the brace-after-`)`/
+/// `else` boundary bug already fixed once for the Phase 11
+/// `eliminate_common_subexpressions` pass above (a `{` can follow `)` --
+/// an `if`/`for`/`while` header -- or `else` just as often as it follows
+/// `;`). `classify_fusable_statement` itself independently guarantees a run
+/// never crosses a `{`/`}`, a declaration, a control-flow statement, or a
+/// `return` (see its own doc comment), so no separate brace-clearing step
+/// is needed here the way the CSE pass above needs one for its cache.
+pub fn fuse_statement_sequences(items: Vec<Item>, stats: &mut AggressiveStats) -> Vec<Item> {
+    let mut out: Vec<Item> = Vec::with_capacity(items.len());
+    let mut i = 0;
+    while i < items.len() {
+        if is_statement_boundary(&items, i) {
+            let run = collect_fusable_run(&items, i);
+            if run.len() >= 2 {
+                for (idx, stmt) in run.iter().enumerate() {
+                    if idx > 0 {
+                        out.push(Item {
+                            tok: Tok::Punct(','),
+                            text: ",".to_string(),
+                            space_before: false,
+                        });
+                    }
+                    out.extend(items[stmt.start..stmt.expr_end].iter().cloned());
+                }
+                out.push(Item {
+                    tok: Tok::Punct(';'),
+                    text: ";".to_string(),
+                    space_before: false,
+                });
+                stats.statement_sequences_fused += 1;
+                i = run.last().unwrap().stmt_end;
+                continue;
+            }
+        }
+        out.push(items[i].clone());
+        i += 1;
+    }
+    out
+}
+
 pub fn merge_declarations(items: Vec<Item>, stats: &mut AggressiveStats) -> Vec<Item> {
     let type_kw = type_keywords();
     let mut out: Vec<Item> = Vec::with_capacity(items.len());
@@ -1331,7 +1728,7 @@ pub fn merge_declarations(items: Vec<Item>, stats: &mut AggressiveStats) -> Vec<
     while i < items.len() {
         let at_boundary = out
             .last()
-            .is_none_or(|it: &Item| matches!(it.tok, Tok::Punct(';') | Tok::Punct('{') | Tok::Punct('}')));
+            .map(|it: &Item| matches!(it.tok, Tok::Punct(';') | Tok::Punct('{') | Tok::Punct('}'))).unwrap_or(true);
 
         if at_boundary {
             let decl_start = if let (Some(Tok::Ident(t)), Some(Tok::Ident(_))) = (
@@ -1377,7 +1774,223 @@ pub fn merge_declarations(items: Vec<Item>, stats: &mut AggressiveStats) -> Vec<
     out
 }
 
-fn scan_statement(items: &[Item], start: usize) -> Option<usize> {
+struct HoistEdit {
+    start: usize,
+    end: usize,
+    replacement: Vec<Item>,
+}
+
+struct HoistChain {
+    /// Index of the terminating `;` (in the original, unmutated `items`) of
+    /// the first declaration of this type in the current straight-line run
+    /// -- every later same-type declaration folded into this chain has its
+    /// declarator content appended there.
+    anchor_semicolon: usize,
+    /// Declarator content (everything after each hoisted declaration's own
+    /// type keyword, up to but excluding its own terminating `;`) collected
+    /// in order, joined back together with `,` when the edit is emitted.
+    tail: Vec<Vec<Item>>,
+    /// Union of every identifier name declared or referenced by the anchor
+    /// declaration and every declaration folded into this chain so far --
+    /// an intervening statement touching any of these invalidates the
+    /// chain for *all* types, not just this one, matching this module's
+    /// "decline rather than risk" discipline.
+    referenced: HashSet<String>,
+    /// Spans (start, end) of each hoisted declaration, to be blanked out.
+    removed_spans: Vec<(usize, usize)>,
+}
+
+fn identifier_names_in_span(items: &[Item], start: usize, end: usize) -> HashSet<String> {
+    let mut set = HashSet::new();
+    for it in &items[start..end] {
+        if let Tok::Ident(name) = &it.tok {
+            set.insert(name.clone());
+        }
+    }
+    set
+}
+
+/// `golf.md` Phase 30.4 -- declaration hoisting / merge-across-function.
+/// Extends `merge_declarations` above (which only merges *adjacent*
+/// same-type declaration statements) to also relocate a later same-type
+/// declaration backward to merge with an earlier one, when every statement
+/// separating them is a straight-line assignment / increment-decrement /
+/// call statement (reusing `classify_fusable_statement`, the same
+/// classifier Phase 30.1's `inline_aggressive` and Phase 30.3's
+/// `fuse_statement_sequences` already rely on) that references none of the
+/// names declared or used by either declaration.
+///
+/// This is deliberately weaker than a full compiler's reaching-definitions
+/// analysis: it declines the moment it sees a declaration, control-flow
+/// statement, block boundary, or a name collision, rather than proving
+/// safety through those cases -- several theoretically-safe hoists are
+/// left alone rather than risked, matching the Phase 11 invariant this
+/// document (`ROADMAP.md` Phase 11) already established for
+/// `eliminate_common_subexpressions`, and no full data-flow analysis is
+/// implemented here for the same reason ("never invent a new safety
+/// class"). A `{`/`}` of any kind clears every pending chain outright: a
+/// nested scope can shadow a name a chain depends on, so hoisting is never
+/// attempted across one, even when the nested block itself contains no
+/// declarations.
+/// Flushes a single chain into `edits` if it accumulated at least one
+/// merge (a non-empty `tail`); a chain that never merged anything is
+/// simply dropped, since there is nothing to commit. See
+/// `flush_completed_chains` below for why this must run at every point a
+/// chain would otherwise be discarded.
+fn flush_chain(chain: HoistChain, edits: &mut Vec<HoistEdit>, hoisted: &mut usize) {
+    if chain.tail.is_empty() {
+        return;
+    }
+    *hoisted += chain.tail.len();
+    let mut replacement: Vec<Item> = vec![Item {
+        tok: Tok::Punct(','),
+        text: ",".to_string(),
+        space_before: false,
+    }];
+    for (idx, declarator) in chain.tail.iter().enumerate() {
+        if idx > 0 {
+            replacement.push(Item {
+                tok: Tok::Punct(','),
+                text: ",".to_string(),
+                space_before: false,
+            });
+        }
+        replacement.extend(declarator.iter().cloned());
+    }
+    replacement.push(Item {
+        tok: Tok::Punct(';'),
+        text: ";".to_string(),
+        space_before: false,
+    });
+    edits.push(HoistEdit {
+        start: chain.anchor_semicolon,
+        end: chain.anchor_semicolon + 1,
+        replacement,
+    });
+    for (start, end) in chain.removed_spans {
+        edits.push(HoistEdit {
+            start,
+            end,
+            replacement: Vec::new(),
+        });
+    }
+}
+
+/// Drains every chain in `chains` into `edits` via `flush_chain` above,
+/// then empties `chains`. This must run at *every* point a chain would
+/// otherwise be discarded -- a block boundary, an opaque statement, a
+/// later statement that merely reads a name the chain already merged, or
+/// end-of-input alike -- since a chain that already merged one or more
+/// declarations represents a completed, already-decided edit; silently
+/// dropping it would throw away a merge that was already committed to
+/// (its source declarations already recorded in `removed_spans`), not
+/// merely decline a further one.
+fn flush_completed_chains(chains: &mut HashMap<String, HoistChain>, edits: &mut Vec<HoistEdit>, hoisted: &mut usize) {
+    for (_, chain) in chains.drain() {
+        flush_chain(chain, edits, hoisted);
+    }
+}
+
+pub fn hoist_declarations(items: Vec<Item>, stats: &mut AggressiveStats) -> Vec<Item> {
+    let mut chains: HashMap<String, HoistChain> = HashMap::new();
+    let mut edits: Vec<HoistEdit> = Vec::new();
+    let mut hoisted = 0usize;
+    let mut i = 0;
+
+    while i < items.len() {
+        if matches!(items.get(i).map(|it| &it.tok), Some(Tok::Punct('{')) | Some(Tok::Punct('}'))) {
+            flush_completed_chains(&mut chains, &mut edits, &mut hoisted);
+            i += 1;
+            continue;
+        }
+
+        if !is_statement_boundary(&items, i) {
+            i += 1;
+            continue;
+        }
+
+        if let Some((type_name, _subs, end)) = parse_declaration_statement(&items, i) {
+            let semicolon_idx = end - 1;
+            let referenced = identifier_names_in_span(&items, i, end);
+
+            if let Some(chain) = chains.get_mut(&type_name) {
+                chain.tail.push(items[i + 1..semicolon_idx].to_vec());
+                chain.referenced.extend(referenced);
+                chain.removed_spans.push((i, end));
+            } else {
+                chains.insert(
+                    type_name,
+                    HoistChain {
+                        anchor_semicolon: semicolon_idx,
+                        tail: Vec::new(),
+                        referenced,
+                        removed_spans: Vec::new(),
+                    },
+                );
+            }
+            i = end;
+            continue;
+        }
+
+        if let Some(stmt) = classify_fusable_statement(&items, i) {
+            let touched = identifier_names_in_span(&items, stmt.start, stmt.expr_end);
+            // A chain touching any of `touched` -- whether by reading or
+            // writing one of the names it already declared/merged -- can
+            // never accept a *further* merge safely, but any merge it
+            // already committed must still be flushed to an edit rather
+            // than dropped by a bare retain, exactly like the
+            // block-boundary and opaque-statement cases below.
+            let invalidated: Vec<String> = chains
+                .iter()
+                .filter(|(_, chain)| !chain.referenced.is_disjoint(&touched))
+                .map(|(name, _)| name.clone())
+                .collect();
+            for name in invalidated {
+                if let Some(chain) = chains.remove(&name) {
+                    flush_chain(chain, &mut edits, &mut hoisted);
+                }
+            }
+            i = stmt.stmt_end;
+            continue;
+        }
+
+        // Anything else (control flow, `return`, a lone `;`, ...) is opaque
+        // to this conservative pass: every pending chain is invalidated --
+        // but a chain that already committed a merge must still be flushed
+        // to an edit rather than discarded, same as the block-boundary
+        // case above -- and `scan_statement` is used purely to make
+        // forward progress past whatever this statement turns out to be.
+        flush_completed_chains(&mut chains, &mut edits, &mut hoisted);
+        i = scan_statement(&items, i).unwrap_or(i + 1).max(i + 1);
+    }
+
+    flush_completed_chains(&mut chains, &mut edits, &mut hoisted);
+
+    if edits.is_empty() {
+        return items;
+    }
+    edits.sort_by_key(|e| e.start);
+
+    let mut out = Vec::with_capacity(items.len());
+    let mut i = 0;
+    let mut edit_iter = edits.into_iter().peekable();
+    while i < items.len() {
+        if let Some(edit) = edit_iter.peek() {
+            if edit.start == i {
+                let edit = edit_iter.next().unwrap();
+                out.extend(edit.replacement);
+                i = edit.end;
+                continue;
+            }
+        }
+        out.push(items[i].clone());
+        i += 1;
+    }
+    stats.declarations_merged += hoisted;
+    out
+}
+
+pub(crate) fn scan_statement(items: &[Item], start: usize) -> Option<usize> {
     match find_ident(items, start) {
         Some("if") => {
             let paren_end = skip_balanced(items, start + 1, '(', ')')?;

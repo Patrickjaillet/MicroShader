@@ -20,6 +20,7 @@
 #include "ui/win32_appearance_panel.h"
 #include "ui/win32_appearance_settings.h"
 #include "ui/win32_about_panel.h"
+#include "ui/win32_twigl_export_panel.h"
 #include "ui/win32_tool_button.h"
 #include "ui/theme_tokens.h"
 #include "ui/glsl_format.h"
@@ -60,8 +61,12 @@ namespace
     constexpr int kViewportTabIndex = 5;
     constexpr int kAppearanceTabIndex = 6;
     constexpr int kAboutTabIndex = 7;
+    constexpr int kTwiglExportTabIndex = 8;
     constexpr int kInspectorWidth = 300;
     constexpr int kRunGolfButtonHeight = 32;
+    constexpr int kMiniPreviewWidth = 420;
+    constexpr int kMiniPreviewHeight = 236;
+    constexpr int kMiniPreviewGap = 8;
 
     const wchar_t kGlslFilter[] = L"GLSL shaders (*.glsl)\0*.glsl\0All files (*.*)\0*.*\0";
 
@@ -98,6 +103,7 @@ namespace
     Win32AppearancePanel g_appearance_panel;
     bool g_appearance_slider_dragging = false;
     Win32AboutPanel g_about_panel;
+    Win32TwiglExportPanel g_twigl_export_panel;
     Win32ToolButton g_run_golf_button;
     Win32ToolButton g_formatted_view_button;
     WglViewportHost g_viewport;
@@ -109,6 +115,13 @@ namespace
     bool g_gl_ready = false;
     bool g_golfed_gl_ready = false;
     bool g_compare_mode = false;
+    WglViewportHost g_mini_viewport;
+    ShaderRunner g_mini_source_runner;
+    ShaderRunner g_mini_golfed_runner;
+    OffscreenFramebuffer g_mini_source_fb;
+    OffscreenFramebuffer g_mini_golfed_fb;
+    bool g_mini_source_gl_ready = false;
+    bool g_mini_golfed_gl_ready = false;
     bool g_shimmer_ready = false;
     bool g_window_focused = false;
     bool g_editor_dragging = false;
@@ -206,9 +219,7 @@ namespace
             content_height = 0;
         }
 
-        bool show_inspector = g_tab_strip.active_index() != kViewportTabIndex;
-        int inspector_width = show_inspector ? kInspectorWidth : 0;
-        int main_width = window_width - inspector_width;
+        int main_width = window_width - kInspectorWidth - kMiniPreviewWidth;
         if (main_width < 0)
         {
             main_width = 0;
@@ -233,6 +244,7 @@ namespace
         g_stats_panel.layout(0, content_top, main_width, content_height);
         g_appearance_panel.layout(0, content_top, main_width, content_height);
         g_about_panel.layout(0, content_top, main_width, content_height);
+        g_twigl_export_panel.layout(0, content_top, main_width, content_height);
         g_command_palette.layout(window_width, window_height);
 
         g_golf_controls.layout(window_width - kInspectorWidth, content_top + kRunGolfButtonHeight + 8,
@@ -242,8 +254,14 @@ namespace
 
         if (g_viewport.hwnd() != nullptr)
         {
-            MoveWindow(g_viewport.hwnd(), 0, content_top, window_width, content_height, TRUE);
+            MoveWindow(g_viewport.hwnd(), 0, content_top, main_width, content_height, TRUE);
             ShowWindow(g_viewport.hwnd(), g_tab_strip.active_index() == kViewportTabIndex ? SW_SHOW : SW_HIDE);
+        }
+        if (g_mini_viewport.hwnd() != nullptr)
+        {
+            int mini_x = window_width - kInspectorWidth - kMiniPreviewWidth;
+            int mini_total_height = kMiniPreviewHeight * 2 + kMiniPreviewGap;
+            MoveWindow(g_mini_viewport.hwnd(), mini_x, content_top, kMiniPreviewWidth, mini_total_height, TRUE);
         }
     }
 
@@ -261,6 +279,7 @@ namespace
         g_golfed_editor.set_focus(g_window_focused && g_tab_strip.active_index() == kGolfedTabIndex);
         g_source_editor.tick();
         g_golfed_editor.tick();
+        g_twigl_export_panel.tick();
         g_command_palette.tick();
 
         accessibility_begin_frame();
@@ -276,8 +295,7 @@ namespace
         int content_height = client_rect.bottom - content_top;
         int window_width = client_rect.right;
 
-        bool show_inspector = g_tab_strip.active_index() != kViewportTabIndex;
-        int main_width = show_inspector ? window_width - kInspectorWidth : window_width;
+        int main_width = window_width - kInspectorWidth - kMiniPreviewWidth;
 
         if (g_tab_strip.active_index() == kSourceTabIndex)
         {
@@ -322,8 +340,11 @@ namespace
         {
             g_about_panel.paint(g_render_target, g_brushes);
         }
+        else if (g_tab_strip.active_index() == kTwiglExportTabIndex)
+        {
+            g_twigl_export_panel.paint(g_render_target, g_brushes);
+        }
 
-        if (show_inspector)
         {
             D2D1_RECT_F inspector_bg = D2D1::RectF(static_cast<float>(window_width - kInspectorWidth), static_cast<float>(content_top),
                 static_cast<float>(window_width), static_cast<float>(client_rect.bottom));
@@ -333,6 +354,11 @@ namespace
                 static_cast<float>(window_width - kInspectorWidth + 8), static_cast<float>(content_top + 8),
                 static_cast<float>(kInspectorWidth - 16), static_cast<float>(kRunGolfButtonHeight - 8), true);
             g_golf_controls.paint(g_render_target, g_brushes);
+
+            D2D1_RECT_F mini_bg = D2D1::RectF(static_cast<float>(window_width - kInspectorWidth - kMiniPreviewWidth),
+                static_cast<float>(content_top), static_cast<float>(window_width - kInspectorWidth),
+                static_cast<float>(content_top + kMiniPreviewHeight * 2 + kMiniPreviewGap));
+            g_render_target->FillRectangle(mini_bg, g_brushes.bg_app);
         }
 
         g_title_bar.paint(g_render_target, g_brushes, g_icons, title.c_str());
@@ -366,6 +392,7 @@ namespace
         g_stats_panel.destroy();
         g_appearance_panel.destroy();
         g_about_panel.destroy();
+        g_twigl_export_panel.destroy();
         g_run_golf_button.destroy();
         g_formatted_view_button.destroy();
 
@@ -379,6 +406,7 @@ namespace
         g_stats_panel.create(g_render_target, g_dwrite_factory);
         g_appearance_panel.create(g_render_target, g_dwrite_factory);
         g_about_panel.create(g_render_target, g_dwrite_factory);
+        g_twigl_export_panel.create(g_render_target, g_dwrite_factory);
         g_run_golf_button.create(g_render_target, g_dwrite_factory);
         g_formatted_view_button.create(g_render_target, g_dwrite_factory);
 
@@ -410,6 +438,7 @@ namespace
                 ushader_free_string(golfed);
             }
             refresh_golfed_view();
+            g_twigl_export_panel.set_golfed_source(g_golfed_text_raw);
 
             std::vector<GolfTraceStep> trace_steps = trace_json != nullptr
                 ? parse_golf_trace(std::string(trace_json))
@@ -433,6 +462,20 @@ namespace
             ShaderErrorState error_state = make_shader_error_state(compile_error, ShaderRunner::fragment_header_lines());
             g_source_editor.set_error_line(error_state.source_line, utf8_to_wide(error_state.display_message));
         }
+
+        g_mini_viewport.make_current();
+        std::string mini_source_error;
+        g_mini_source_gl_ready = g_mini_source_runner.compile(source, mini_source_error);
+        if (ok)
+        {
+            std::string mini_golfed_error;
+            g_mini_golfed_gl_ready = g_mini_golfed_runner.compile(g_golfed_text_raw, mini_golfed_error);
+        }
+        else
+        {
+            g_mini_golfed_gl_ready = false;
+        }
+        g_viewport.make_current();
     }
 
     void switch_tab(HWND hwnd, int index)
@@ -481,6 +524,7 @@ namespace
             {"Switch to tab: Viewport", [hwnd]() { switch_tab(hwnd, kViewportTabIndex); }},
             {"Switch to tab: Appearance", [hwnd]() { switch_tab(hwnd, kAppearanceTabIndex); }},
             {"Switch to tab: About", [hwnd]() { switch_tab(hwnd, kAboutTabIndex); }},
+            {"Switch to tab: Twigl export", [hwnd]() { switch_tab(hwnd, kTwiglExportTabIndex); }},
             {"Run golf (recompile)", [hwnd]() { recompile_from_editor(); layout_chrome(hwnd); }},
             {"Reset to default shader", [hwnd]() { g_source_editor.set_text_utf8(kDefaultShaderSource); recompile_from_editor(); layout_chrome(hwnd); }},
             {"Toggle Formatted view", [hwnd]() { g_formatted_view = !g_formatted_view; refresh_golfed_view(); layout_chrome(hwnd); }},
@@ -573,6 +617,61 @@ namespace
         }
 
         g_viewport.swap_buffers();
+    }
+
+    void render_mini_preview_frame(const std::chrono::steady_clock::time_point& start_time, int frame_index)
+    {
+        float elapsed = std::chrono::duration<float>(std::chrono::steady_clock::now() - start_time).count();
+        g_mini_viewport.make_current();
+        int total_width = g_mini_viewport.width();
+        int total_height = g_mini_viewport.height();
+
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glViewport(0, 0, total_width, total_height);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        ShaderUniforms uniforms{};
+        uniforms.time = elapsed;
+        uniforms.resolution_x = static_cast<float>(kMiniPreviewWidth);
+        uniforms.resolution_y = static_cast<float>(kMiniPreviewHeight);
+        uniforms.frame = frame_index;
+        uniforms.frame_rate = 60.0f;
+
+        if (g_mini_source_gl_ready)
+        {
+            g_mini_source_fb.resize(kMiniPreviewWidth, kMiniPreviewHeight);
+            g_mini_source_fb.bind();
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            g_mini_source_runner.draw(uniforms);
+            g_mini_source_fb.unbind(total_width, total_height);
+
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, g_mini_source_fb.framebuffer_id());
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+            glBlitFramebuffer(0, 0, kMiniPreviewWidth, kMiniPreviewHeight,
+                0, total_height - kMiniPreviewHeight, kMiniPreviewWidth, total_height,
+                GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        }
+
+        if (g_mini_golfed_gl_ready)
+        {
+            g_mini_golfed_fb.resize(kMiniPreviewWidth, kMiniPreviewHeight);
+            g_mini_golfed_fb.bind();
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            g_mini_golfed_runner.draw(uniforms);
+            g_mini_golfed_fb.unbind(total_width, total_height);
+
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, g_mini_golfed_fb.framebuffer_id());
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+            glBlitFramebuffer(0, 0, kMiniPreviewWidth, kMiniPreviewHeight,
+                0, 0, kMiniPreviewWidth, kMiniPreviewHeight,
+                GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        g_mini_viewport.swap_buffers();
+        g_viewport.make_current();
     }
 
     LRESULT CALLBACK main_wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -685,9 +784,8 @@ namespace
                 g_command_palette.on_mouse_down(x, y);
                 return 0;
             }
-            bool show_inspector = g_tab_strip.active_index() != kViewportTabIndex;
             int tab_hit = g_tab_strip.hit_test(x, y);
-            if (show_inspector && g_run_golf_button.contains(x, y))
+            if (g_run_golf_button.contains(x, y))
             {
                 SetFocus(hwnd);
                 recompile_from_editor();
@@ -719,7 +817,7 @@ namespace
                 SetFocus(hwnd);
                 g_trace_view.on_mouse_down(x, y);
             }
-            else if (show_inspector && g_golf_controls.contains(x, y))
+            else if (g_golf_controls.contains(x, y))
             {
                 SetFocus(hwnd);
                 g_golf_controls.on_mouse_down(x, y);
@@ -742,6 +840,17 @@ namespace
             {
                 SetFocus(hwnd);
                 g_about_panel.on_mouse_down(x, y);
+            }
+            else if (g_tab_strip.active_index() == kTwiglExportTabIndex && g_twigl_export_panel.contains(x, y))
+            {
+                SetFocus(hwnd);
+                g_twigl_export_panel.on_mouse_down(x, y);
+                std::string snippet_source;
+                if (g_twigl_export_panel.take_pending_snippet_insert(snippet_source))
+                {
+                    g_source_editor.insert_text_utf8(snippet_source);
+                    layout_chrome(hwnd);
+                }
             }
             return 0;
         }
@@ -776,6 +885,10 @@ namespace
             {
                 g_trace_view.on_mouse_wheel(GET_WHEEL_DELTA_WPARAM(wparam));
             }
+            else if (g_tab_strip.active_index() == kTwiglExportTabIndex)
+            {
+                g_twigl_export_panel.on_mouse_wheel(GET_WHEEL_DELTA_WPARAM(wparam));
+            }
             return 0;
         }
         case WM_SETFOCUS:
@@ -803,12 +916,9 @@ namespace
                     return 0;
                 }
             }
-            if (g_tab_strip.active_index() != kViewportTabIndex)
+            if (g_golf_controls.on_char(static_cast<wchar_t>(wparam)))
             {
-                if (g_golf_controls.on_char(static_cast<wchar_t>(wparam)))
-                {
-                    return 0;
-                }
+                return 0;
             }
             return DefWindowProcW(hwnd, msg, wparam, lparam);
         }
@@ -877,6 +987,11 @@ namespace
                 layout_chrome(hwnd);
                 return 0;
             }
+            if (win32_chord_matches(g_keybindings.twigl_export_toggle, wparam, ctrl_held, shift_held, alt_held))
+            {
+                switch_tab(hwnd, g_tab_strip.active_index() == kTwiglExportTabIndex ? kSourceTabIndex : kTwiglExportTabIndex);
+                return 0;
+            }
             if (active_editor() != nullptr)
             {
                 if (active_editor()->on_key_down(wparam, ctrl_held, shift_held))
@@ -884,7 +999,6 @@ namespace
                     return 0;
                 }
             }
-            if (g_tab_strip.active_index() != kViewportTabIndex)
             {
                 if (g_golf_controls.on_key_down(wparam))
                 {
@@ -1040,6 +1154,10 @@ int main()
     {
         return 1;
     }
+    if (!g_mini_viewport.create(hwnd, 0, viewport_top, kMiniPreviewWidth, kMiniPreviewHeight * 2 + kMiniPreviewGap))
+    {
+        return 1;
+    }
     layout_chrome(hwnd);
 
     g_viewport.make_current();
@@ -1076,7 +1194,9 @@ int main()
             break;
         }
 
-        render_viewport_frame(start_time, frame_index++);
+        render_viewport_frame(start_time, frame_index);
+        render_mini_preview_frame(start_time, frame_index);
+        ++frame_index;
         paint_chrome(hwnd, title);
     }
 
@@ -1086,6 +1206,13 @@ int main()
     g_compare_source_fb.destroy();
     g_compare_golfed_fb.destroy();
     g_viewport.destroy();
+
+    g_mini_viewport.make_current();
+    g_mini_source_runner.destroy();
+    g_mini_golfed_runner.destroy();
+    g_mini_source_fb.destroy();
+    g_mini_golfed_fb.destroy();
+    g_mini_viewport.destroy();
     g_title_bar.destroy();
     g_tab_strip.destroy();
     g_source_editor.destroy();

@@ -45,13 +45,21 @@ int main()
         "void mainImage(out vec4 a,in vec2 c){float b=1.;a=vec4(b);}");
 
     UshaderGolfOptions all{
-        true, true, true, true, true, true, true, true, true, true, true, true, true, true
+        true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false
     };
     failures += check(
         "aggressive pipeline",
         "void mainImage(out vec4 fragColor,in vec2 fragCoord){float x=1.0;x=2.0;fragColor=vec4(x);}",
         all,
         "void mainImage(out vec4 b,in vec2 c){float a;a=2.;b=vec4(a);}");
+
+    UshaderGolfOptions freq_renaming = all;
+    freq_renaming.frequency_aware_renaming = true;
+    failures += check(
+        "frequency-aware renaming",
+        "void mainImage(out vec4 fragColor,in vec2 fragCoord){float floorField=floor(fragCoord.x)+floor(fragCoord.y);float fractField=fract(fragCoord.x)+fract(fragCoord.y);float finalField=floorField+fractField+floor(floorField)+fract(fractField);float filterField=finalField+floorField+fractField;fragColor=vec4(floorField+fractField+finalField+filterField);}",
+        freq_renaming,
+        "void mainImage(out vec4 e,in vec2 a){float b=floor(a.x)+floor(a.y),c=fract(a.x)+fract(a.y),d=b+c+floor(b)+fract(c),f=d+b+c;e=vec4(b+c+d+f);}");
 
     UshaderGolfStats dead_store_stats{};
     char* dead_store_golfed = ushader_golf(

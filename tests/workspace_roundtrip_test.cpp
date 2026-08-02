@@ -34,7 +34,8 @@ namespace
             && a.eliminate_dead_functions == b.eliminate_dead_functions
             && a.inline_single_call_functions == b.inline_single_call_functions
             && a.simplify_algebraic_identities == b.simplify_algebraic_identities
-            && a.eliminate_common_subexpressions == b.eliminate_common_subexpressions;
+            && a.eliminate_common_subexpressions == b.eliminate_common_subexpressions
+            && a.frequency_aware_renaming == b.frequency_aware_renaming;
     }
 }
 

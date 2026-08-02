@@ -13,8 +13,8 @@
 
 namespace
 {
-    const wchar_t* kTabLabels[] = { L"Source", L"Golfed", L"Diff", L"Trace", L"Stats", L"Viewport", L"Appearance", L"About" };
-    const char* kTabNames[] = { "Source", "Golfed", "Diff", "Trace", "Stats", "Viewport", "Appearance", "About" };
+    const wchar_t* kTabLabels[] = { L"Source", L"Golfed", L"Diff", L"Trace", L"Stats", L"Viewport", L"Appearance", L"About", L"Twigl" };
+    const char* kTabNames[] = { "Source", "Golfed", "Diff", "Trace", "Stats", "Viewport", "Appearance", "About", "Twigl" };
 }
 
 bool TabStrip::create(ID2D1RenderTarget* render_target, IDWriteFactory* dwrite_factory)

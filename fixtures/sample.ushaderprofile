@@ -17,6 +17,7 @@
   "inline_single_call_functions": true,
   "simplify_algebraic_identities": false,
   "eliminate_common_subexpressions": true,
+  "frequency_aware_renaming": false,
   "protected_names": "iTime,iResolution,mainImage",
   "budget_preset": "JS13K-style 13KB"
 }
