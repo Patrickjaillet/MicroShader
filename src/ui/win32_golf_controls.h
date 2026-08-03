@@ -61,5 +61,5 @@ private:
     RECT field_rect() const;
     RECT checkbox_hit_rect(int index) const;
 
-    static constexpr int kCheckboxCount = 19;
+    static constexpr int kCheckboxCount = 22;
 };

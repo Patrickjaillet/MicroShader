@@ -371,6 +371,48 @@ pub fn neyret_hash_snippet(name: &str) -> Option<&'static str> {
     NEYRET_HASH_SNIPPETS.iter().find(|s| s.name == name).map(|s| s.source)
 }
 
+// ---------------------------------------------------------------------
+// 35.3 — Single-expression raymarch-loop compaction idiom catalogue
+// ---------------------------------------------------------------------
+//
+// Builds directly on `golf.md` Phase 30.3's comma-operator statement
+// fusion (`fuse_statement_sequences`), now landed. Unlike 35.1/35.2
+// above, every entry here is explicitly a "close enough" idiom whose
+// correctness depends on numeric tolerance, not an exact transform: the
+// `after` form typically drops an early-exit `break` entirely, relying on
+// the loop body's own math contributing a negligible amount once past
+// convergence, rather than proving termination the way Phase 31's loop
+// safety net does for its own (behavior-preserving) rewrites. Per the
+// Phase 11 invariant, this catalogue is read-only reference data only --
+// nothing here is detected in or auto-applied to user source, matching
+// 35.4's "inert, dismissible card" requirement for the Golf Tips panel.
+
+pub struct RaymarchLoopIdiom {
+    pub name: &'static str,
+    pub before: &'static str,
+    pub after: &'static str,
+    pub caveat: &'static str,
+}
+
+const RAYMARCH_LOOP_IDIOMS: &[RaymarchLoopIdiom] = &[
+    RaymarchLoopIdiom {
+        name: "break-free raymarch accumulation",
+        before: "float t=0.;for(int i=0;i<64;i++){float d=map(ro+rd*t);if(d<.001){break;}t+=d;}",
+        after: "float t=0.;for(int i=0;i<64;i++)t+=map(ro+rd*t);",
+        caveat: "Drops the early-exit break entirely: once t is within epsilon of the surface, map() returns a value close enough to zero that further iterations barely move t. Correct within the same visual tolerance the original break threshold already accepted, but not bit-identical -- the remaining iterations still add a tiny nonzero amount each step.",
+    },
+    RaymarchLoopIdiom {
+        name: "branch-free fractal escape counting",
+        before: "vec2 z=uv;float m=0.;for(int i=0;i<8;i++){z=vec2(z.x*z.x-z.y*z.y,2.*z.x*z.y)+c;if(dot(z,z)>4.){break;}m+=1.;}",
+        after: "vec2 z=uv;float m=0.;for(int i=0;i<8;i++)z=vec2(z.x*z.x-z.y*z.y,2.*z.x*z.y)+c,m+=step(dot(z,z),4.);",
+        caveat: "Replaces the early-exit break with a step()-gated accumulator: iterations continue past escape, but step() stops them contributing to m once dot(z,z) exceeds 4. Changes z's trajectory after escape (it keeps iterating instead of freezing), which only matters if z is read again after the loop -- safe for the extremely common case where only m (the escape count) is used for coloring.",
+    },
+];
+
+pub fn raymarch_loop_idioms() -> &'static [RaymarchLoopIdiom] {
+    RAYMARCH_LOOP_IDIOMS
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -493,5 +535,52 @@ mod tests {
     fn hash_snippet_names_match_the_documented_catalogue() {
         let names: Vec<&str> = neyret_hash_snippets().iter().map(|s| s.name).collect();
         assert_eq!(names, vec!["hash11", "hash12", "hash21", "hash22", "hash13"]);
+    }
+
+    fn balanced(text: &str) -> bool {
+        let mut paren_depth = 0i32;
+        let mut brace_depth = 0i32;
+        for c in text.chars() {
+            match c {
+                '(' => paren_depth += 1,
+                ')' => paren_depth -= 1,
+                '{' => brace_depth += 1,
+                '}' => brace_depth -= 1,
+                _ => {}
+            }
+        }
+        paren_depth == 0 && brace_depth == 0
+    }
+
+    #[test]
+    fn every_raymarch_loop_idiom_has_balanced_before_and_after_snippets() {
+        for idiom in raymarch_loop_idioms() {
+            assert!(balanced(idiom.before), "{}: before", idiom.name);
+            assert!(balanced(idiom.after), "{}: after", idiom.name);
+        }
+    }
+
+    #[test]
+    fn every_raymarch_loop_idiom_after_form_is_never_longer_than_before() {
+        for idiom in raymarch_loop_idioms() {
+            assert!(
+                idiom.after.chars().count() < idiom.before.chars().count(),
+                "{}: after form is not strictly shorter",
+                idiom.name
+            );
+        }
+    }
+
+    #[test]
+    fn every_raymarch_loop_idiom_documents_a_non_empty_caveat() {
+        for idiom in raymarch_loop_idioms() {
+            assert!(!idiom.caveat.is_empty(), "{}", idiom.name);
+        }
+    }
+
+    #[test]
+    fn raymarch_loop_idiom_names_match_the_documented_catalogue() {
+        let names: Vec<&str> = raymarch_loop_idioms().iter().map(|i| i.name).collect();
+        assert_eq!(names, vec!["break-free raymarch accumulation", "branch-free fractal escape counting"]);
     }
 }

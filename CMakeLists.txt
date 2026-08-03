@@ -9,6 +9,8 @@ string(STRIP "${USHADER_VERSION_RAW}" USHADER_VERSION_RAW)
 
 project(ushader VERSION ${USHADER_VERSION_RAW} LANGUAGES CXX RC)
 
+enable_testing()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -195,6 +197,7 @@ add_executable(ushader
     src/ui/win32_about_panel.cpp
     src/ui/win32_tool_button.cpp
     src/ui/win32_twigl_export_panel.cpp
+    src/ui/golf_tips_panel.cpp
     src/ui/golf_options_convert.cpp
     src/ui/budget_presets.cpp
     src/ui/unified_diff.cpp
@@ -263,4 +266,21 @@ target_link_libraries(wgl_equivalence_test PRIVATE
     opengl32
     gdi32
     user32
+    rust_core
 )
+
+foreach(ushader_test_target
+    rust_core_smoke_test
+    golf_profile_roundtrip_test
+    workspace_roundtrip_test
+    report_encoding_test
+    export_wrappers_test
+    exclude_list_import_test
+    ushaderprofile_schema_test
+    wgl_equivalence_test
+)
+    add_test(NAME ${ushader_test_target}
+        COMMAND ${ushader_test_target}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+endforeach()

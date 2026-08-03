@@ -1,13 +1,16 @@
 mod aggressive;
 mod budget;
 mod callgraph;
+mod deflate;
 mod expr;
 mod golfer;
 mod inline;
+mod iq;
 mod lexer;
 mod loop_golf;
 mod macro_cse;
 mod neyret;
+mod search;
 mod swizzle;
 mod twigl;
 mod vocab;
@@ -21,10 +24,16 @@ pub use budget::{
     BudgetPreset, BudgetResult,
 };
 pub use golfer::{golf, golf_with_options, golf_with_protected_names, AggressiveOptions, GolfResult, GolfStats};
+pub use search::{golf_harder, golf_harder_deep, AppliedChange, SearchObjective, SearchOutcome};
 pub use swizzle::SwizzleAlphabet;
 pub use neyret::{
-    neyret_hash_snippet, neyret_hash_snippets, rotation_constant_catalogue,
-    suggest_rotation_matrix_constants, NeyretHashSnippet, RotationConstant, RotationSuggestion,
+    neyret_hash_snippet, neyret_hash_snippets, raymarch_loop_idioms, rotation_constant_catalogue,
+    suggest_rotation_matrix_constants, NeyretHashSnippet, RaymarchLoopIdiom, RotationConstant,
+    RotationSuggestion,
+};
+pub use iq::{
+    iq_hash_snippets, iq_palette_presets, iq_sdf_snippets, iq_tonemap_snippets, IqPalettePreset,
+    IqSnippet, IQ_PALETTE_FUNCTION,
 };
 pub use twigl::{
     rewrite_twigl_shader, rewrite_twigl_shader_mrt, rewrite_twigl_uniforms, twigl_es300_header,

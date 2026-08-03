@@ -9,10 +9,13 @@
 namespace
 {
     // Bumped from 1 to 2 by golf.md Phase 29.2 to add the `swizzle_alphabet`
-    // field. The reader stays backward-compatible with profiles saved
-    // before this field existed: an absent field defaults to `Auto` (0),
-    // see find_int_field below.
-    constexpr int kProfileSchemaVersion = 3;
+    // field, from 2 to 3 by Phase 30.3 to add `fuse_statement_sequences`,
+    // and from 3 to 4 by Phase 30.1/30.2/30.4 to add `aggressive_inlining`,
+    // `macro_cse`, and `hoist_declarations`. The reader stays
+    // backward-compatible with profiles saved before any of these fields
+    // existed: an absent field defaults per its `GolfPassToggles` default
+    // member initializer, see find_bool_field/find_int_field below.
+    constexpr int kProfileSchemaVersion = 4;
 
     std::string json_escape(const std::string& value)
     {
@@ -234,7 +237,10 @@ namespace
             && a.fuse_statement_sequences == b.fuse_statement_sequences
             && a.frequency_aware_renaming == b.frequency_aware_renaming
             && a.factor_repeated_vector_args == b.factor_repeated_vector_args
-            && a.swizzle_alphabet == b.swizzle_alphabet;
+            && a.swizzle_alphabet == b.swizzle_alphabet
+            && a.aggressive_inlining == b.aggressive_inlining
+            && a.macro_cse == b.macro_cse
+            && a.hoist_declarations == b.hoist_declarations;
     }
 
     std::string last_profile_path_file()
@@ -272,7 +278,10 @@ std::string serialize_golf_profile(const GolfPassToggles& toggles, const std::st
     append_bool_field(out, "fuse_statement_sequences", toggles.fuse_statement_sequences, true);
     append_bool_field(out, "frequency_aware_renaming", toggles.frequency_aware_renaming, true);
     append_bool_field(out, "factor_repeated_vector_args", toggles.factor_repeated_vector_args, true);
-    append_int_field(out, "swizzle_alphabet", toggles.swizzle_alphabet, false);
+    append_int_field(out, "swizzle_alphabet", toggles.swizzle_alphabet, true);
+    append_bool_field(out, "aggressive_inlining", toggles.aggressive_inlining, true);
+    append_bool_field(out, "macro_cse", toggles.macro_cse, true);
+    append_bool_field(out, "hoist_declarations", toggles.hoist_declarations, false);
     out += "  \"protected_names\": \"" + json_escape(protected_names) + "\",\n";
     out += "  \"budget_preset\": \"" + json_escape(budget_preset_name(budget_preset_index)) + "\"\n";
     out += "}\n";
@@ -312,6 +321,12 @@ bool deserialize_golf_profile(const std::string& text, GolfPassToggles& toggles,
     // Absent in profiles saved before schema version 2 — defaults to
     // `Auto` (0) via GolfPassToggles' own default member initializer.
     parsed.swizzle_alphabet = find_int_field(text, "swizzle_alphabet", parsed.swizzle_alphabet);
+    // Absent in profiles saved before schema version 4 -- each defaults
+    // per its own GolfPassToggles default member initializer (false for
+    // aggressive_inlining, true for macro_cse/hoist_declarations).
+    parsed.aggressive_inlining = find_bool_field(text, "aggressive_inlining", parsed.aggressive_inlining);
+    parsed.macro_cse = find_bool_field(text, "macro_cse", parsed.macro_cse);
+    parsed.hoist_declarations = find_bool_field(text, "hoist_declarations", parsed.hoist_declarations);
 
     toggles = parsed;
     protected_names = find_string_field(text, "protected_names");
@@ -330,6 +345,15 @@ GolfPassToggles builtin_profile_maximum()
     // GolfPassToggles' own default member initializer, kept explicit here
     // for the same self-documentation reason 29.1's line above exists).
     toggles.fuse_statement_sequences = true;
+    // golf.md Phase 30.2/30.4: same as 30.3 above -- redundant with the
+    // default member initializer, kept explicit for self-documentation.
+    toggles.macro_cse = true;
+    toggles.hoist_declarations = true;
+    // golf.md Phase 30.1: explicitly left off, even in "Maximum" -- this
+    // is the one pass in this whole document that can legitimately make
+    // output larger if mis-tuned, so it stays an explicit opt-in even for
+    // competitive users, per golf.md Phase 30.1's own stated rationale.
+    toggles.aggressive_inlining = false;
     return toggles;
 }
 
@@ -357,6 +381,9 @@ GolfPassToggles builtin_profile_safe()
     toggles.frequency_aware_renaming = false;
     toggles.factor_repeated_vector_args = false;
     toggles.swizzle_alphabet = static_cast<int>(SwizzleAlphabetChoice::Xyzw);
+    toggles.aggressive_inlining = false;
+    toggles.macro_cse = false;
+    toggles.hoist_declarations = false;
     return toggles;
 }
 
@@ -384,6 +411,9 @@ GolfPassToggles builtin_profile_none()
     toggles.frequency_aware_renaming = false;
     toggles.factor_repeated_vector_args = false;
     toggles.swizzle_alphabet = static_cast<int>(SwizzleAlphabetChoice::Xyzw);
+    toggles.aggressive_inlining = false;
+    toggles.macro_cse = false;
+    toggles.hoist_declarations = false;
     return toggles;
 }
 

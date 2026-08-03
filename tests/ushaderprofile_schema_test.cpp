@@ -44,6 +44,12 @@ int main()
         "simplify_algebraic_identities",
         "eliminate_common_subexpressions",
         "frequency_aware_renaming",
+        "factor_repeated_vector_args",
+        "swizzle_alphabet",
+        "fuse_statement_sequences",
+        "aggressive_inlining",
+        "macro_cse",
+        "hoist_declarations",
         "protected_names",
         "budget_preset",
     };
@@ -58,9 +64,9 @@ int main()
         }
     }
 
-    if (serialized.find("\"schema_version\": 1") == std::string::npos)
+    if (serialized.find("\"schema_version\": 4") == std::string::npos)
     {
-        std::fprintf(stderr, "expected schema_version 1 to be stamped into the serialized profile\n");
+        std::fprintf(stderr, "expected schema_version 4 to be stamped into the serialized profile\n");
         failures += 1;
     }
 

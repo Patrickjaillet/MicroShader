@@ -3,6 +3,7 @@ use crate::golfer::{
     golf_with_protected_names, golf_with_protected_names_traced, AggressiveOptions, GolferTrace,
     GolfStats,
 };
+use crate::search::{golf_harder, golf_harder_deep, AppliedChange, SearchObjective};
 use crate::twigl::{
     rewrite_twigl_shader, rewrite_twigl_shader_mrt, twigl_export_uniform_names, twigl_snippet,
     twigl_snippets, TwiglMode,
@@ -28,6 +29,15 @@ pub struct UshaderGolfOptions {
     pub inline_single_call_functions: bool,
     pub simplify_algebraic_identities: bool,
     pub eliminate_common_subexpressions: bool,
+    /// golf.md Phase 30.3 -- see `AggressiveOptions::fuse_statement_sequences`.
+    pub fuse_statement_sequences: bool,
+    /// golf.md Phase 29.1 -- see `AggressiveOptions::frequency_aware_renaming`.
+    pub frequency_aware_renaming: bool,
+    /// golf.md Phase 29.3 -- see `AggressiveOptions::factor_repeated_vector_args`.
+    pub factor_repeated_vector_args: bool,
+    /// golf.md Phase 29.2 -- see `AggressiveOptions::swizzle_alphabet`. 0 =
+    /// Auto, 1 = xyzw, 2 = rgba, 3 = stpq; any other value falls back to Auto.
+    pub swizzle_alphabet: i32,
     /// golf.md Phase 30.1 -- see `AggressiveOptions::aggressive_inlining`.
     pub aggressive_inlining: bool,
     /// golf.md Phase 30.2 -- see `AggressiveOptions::macro_cse`.
@@ -38,6 +48,12 @@ pub struct UshaderGolfOptions {
 
 impl From<UshaderGolfOptions> for AggressiveOptions {
     fn from(o: UshaderGolfOptions) -> Self {
+        let swizzle_alphabet = match o.swizzle_alphabet {
+            1 => crate::swizzle::SwizzleAlphabet::Xyzw,
+            2 => crate::swizzle::SwizzleAlphabet::Rgba,
+            3 => crate::swizzle::SwizzleAlphabet::Stpq,
+            _ => crate::swizzle::SwizzleAlphabet::Auto,
+        };
         AggressiveOptions {
             eliminate_dead_locals: o.eliminate_dead_locals,
             eliminate_dead_stores: o.eliminate_dead_stores,
@@ -55,16 +71,16 @@ impl From<UshaderGolfOptions> for AggressiveOptions {
             inline_single_call_functions: o.inline_single_call_functions,
             simplify_algebraic_identities: o.simplify_algebraic_identities,
             eliminate_common_subexpressions: o.eliminate_common_subexpressions,
-            fuse_statement_sequences: false,
+            fuse_statement_sequences: o.fuse_statement_sequences,
             aggressive_inlining: o.aggressive_inlining,
             macro_cse: o.macro_cse,
             macro_cse_compression_budget: false,
             hoist_declarations: o.hoist_declarations,
             loop_header_golf: false,
             loop_form_golf: false,
-            frequency_aware_renaming: false,
-            factor_repeated_vector_args: false,
-            swizzle_alphabet: crate::swizzle::SwizzleAlphabet::Auto,
+            frequency_aware_renaming: o.frequency_aware_renaming,
+            factor_repeated_vector_args: o.factor_repeated_vector_args,
+            swizzle_alphabet,
         }
     }
 }
@@ -92,6 +108,16 @@ pub struct UshaderGolfStats {
     pub functions_inlined: usize,
     pub algebraic_identities_simplified: usize,
     pub common_subexpressions_eliminated: usize,
+    /// ROADMAP.md Phase 37.4 -- see `AggressiveStats::statement_sequences_fused`.
+    pub statement_sequences_fused: usize,
+    /// ROADMAP.md Phase 37.4 -- see `AggressiveStats::vector_args_factored`.
+    pub vector_args_factored: usize,
+    /// ROADMAP.md Phase 37.4 -- see `AggressiveStats::swizzles_recolored`.
+    pub swizzles_recolored: usize,
+    /// ROADMAP.md Phase 37.4 -- see `AggressiveStats::loop_headers_golfed`.
+    pub loop_headers_golfed: usize,
+    /// ROADMAP.md Phase 37.4 -- see `AggressiveStats::loop_forms_normalized`.
+    pub loop_forms_normalized: usize,
 }
 
 impl From<GolfStats> for UshaderGolfStats {
@@ -118,6 +144,11 @@ impl From<GolfStats> for UshaderGolfStats {
             functions_inlined: s.aggressive.functions_inlined,
             algebraic_identities_simplified: s.aggressive.algebraic_identities_simplified,
             common_subexpressions_eliminated: s.aggressive.common_subexpressions_eliminated,
+            statement_sequences_fused: s.aggressive.statement_sequences_fused,
+            vector_args_factored: s.aggressive.vector_args_factored,
+            swizzles_recolored: s.aggressive.swizzles_recolored,
+            loop_headers_golfed: s.aggressive.loop_headers_golfed,
+            loop_forms_normalized: s.aggressive.loop_forms_normalized,
         }
     }
 }
@@ -292,6 +323,196 @@ pub extern "C" fn ushader_golf_traced(
     }
 
     match CString::new(result.code) {
+        Ok(c_string) => c_string.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+fn applied_changes_to_json(applied: &[AppliedChange]) -> String {
+    let mut out = String::from("[");
+    for (i, change) in applied.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str("{\"pass_name\":\"");
+        json_escape_into(&mut out, change.pass_name);
+        out.push_str("\",\"from\":\"");
+        json_escape_into(&mut out, &change.from);
+        out.push_str("\",\"to\":\"");
+        json_escape_into(&mut out, &change.to);
+        out.push_str("\"}");
+    }
+    out.push(']');
+    out
+}
+
+/// golf.md Phase 32.1 -- runs the bounded "Golf harder" pass-order/subset
+/// search and returns the best combination found. `out_improved` is set to
+/// whether it beat `options` alone (the caller should offer the result as a
+/// one-click diff/apply, never replace the current output silently, per
+/// this document's "nothing changes silently" precedent). `out_applied_json`
+/// is a JSON array of `{pass_name, from, to}` describing every toggle the
+/// search flipped relative to `options`, for UI explanation text.
+#[no_mangle]
+pub extern "C" fn ushader_golf_harder(
+    source: *const c_char,
+    options: UshaderGolfOptions,
+    protected_names: *const c_char,
+    compression_based: bool,
+    out_stats: *mut UshaderGolfStats,
+    out_improved: *mut bool,
+    out_applied_json: *mut *mut c_char,
+) -> *mut c_char {
+    if !out_improved.is_null() {
+        unsafe {
+            *out_improved = false;
+        }
+    }
+    if !out_applied_json.is_null() {
+        unsafe {
+            *out_applied_json = std::ptr::null_mut();
+        }
+    }
+
+    if source.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let source = match unsafe { CStr::from_ptr(source) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let names: Vec<String> = if protected_names.is_null() {
+        Vec::new()
+    } else {
+        match unsafe { CStr::from_ptr(protected_names) }.to_str() {
+            Ok(s) => s
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    };
+
+    let outcome = golf_harder(source, options.into(), &names, compression_based);
+
+    if !out_stats.is_null() {
+        unsafe {
+            *out_stats = outcome.result.stats.into();
+        }
+    }
+    if !out_improved.is_null() {
+        unsafe {
+            *out_improved = outcome.improved;
+        }
+    }
+    if !out_applied_json.is_null() {
+        if let Ok(c_string) = CString::new(applied_changes_to_json(&outcome.applied)) {
+            unsafe {
+                *out_applied_json = c_string.into_raw();
+            }
+        }
+    }
+
+    match CString::new(outcome.result.code) {
+        Ok(c_string) => c_string.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+fn search_objective_from_code(code: i32) -> SearchObjective {
+    match code {
+        2 => SearchObjective::TwiglGeekest280,
+        1 => SearchObjective::DeflateBytes,
+        _ => SearchObjective::RawBytes,
+    }
+}
+
+/// ROADMAP.md Phase 37.1/37.3 -- "Golf harder", extended: a simulated-
+/// annealing search over the same candidate set as `ushader_golf_harder`,
+/// scored against `objective` (0 = raw bytes, 1 = DEFLATE-estimated bytes,
+/// 2 = the Twigl `geekest`-mode 280-character tweet budget), bounded by
+/// both `max_iterations` and `max_duration_ms` (a wall-clock safety net --
+/// pass a generous `max_iterations` and let `max_duration_ms` govern in
+/// practice, per ROADMAP.md Phase 37.1's 2-second default). Same
+/// never-changes-silently contract as `ushader_golf_harder`: the caller
+/// must offer the result as a diff/apply, never replace the current
+/// output automatically.
+#[no_mangle]
+pub extern "C" fn ushader_golf_harder_deep(
+    source: *const c_char,
+    options: UshaderGolfOptions,
+    protected_names: *const c_char,
+    objective: i32,
+    max_iterations: usize,
+    max_duration_ms: u64,
+    out_stats: *mut UshaderGolfStats,
+    out_improved: *mut bool,
+    out_applied_json: *mut *mut c_char,
+) -> *mut c_char {
+    if !out_improved.is_null() {
+        unsafe {
+            *out_improved = false;
+        }
+    }
+    if !out_applied_json.is_null() {
+        unsafe {
+            *out_applied_json = std::ptr::null_mut();
+        }
+    }
+
+    if source.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let source = match unsafe { CStr::from_ptr(source) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    let names: Vec<String> = if protected_names.is_null() {
+        Vec::new()
+    } else {
+        match unsafe { CStr::from_ptr(protected_names) }.to_str() {
+            Ok(s) => s
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
+            Err(_) => Vec::new(),
+        }
+    };
+
+    let outcome = golf_harder_deep(
+        source,
+        options.into(),
+        &names,
+        search_objective_from_code(objective),
+        max_iterations,
+        std::time::Duration::from_millis(max_duration_ms),
+    );
+
+    if !out_stats.is_null() {
+        unsafe {
+            *out_stats = outcome.result.stats.into();
+        }
+    }
+    if !out_improved.is_null() {
+        unsafe {
+            *out_improved = outcome.improved;
+        }
+    }
+    if !out_applied_json.is_null() {
+        if let Ok(c_string) = CString::new(applied_changes_to_json(&outcome.applied)) {
+            unsafe {
+                *out_applied_json = c_string.into_raw();
+            }
+        }
+    }
+
+    match CString::new(outcome.result.code) {
         Ok(c_string) => c_string.into_raw(),
         Err(_) => std::ptr::null_mut(),
     }

@@ -25,7 +25,37 @@ typedef struct {
     bool inline_single_call_functions;
     bool simplify_algebraic_identities;
     bool eliminate_common_subexpressions;
+    /*
+     * Phase 30.3 — statement-sequence fusion via the comma operator.
+     */
+    bool fuse_statement_sequences;
+    /*
+     * Phase 29.1 — letter/bigram-frequency-driven identifier assignment.
+     */
     bool frequency_aware_renaming;
+    /*
+     * Phase 29.3 — `vecN(a,a,a)` -> `vecN(a)` identical-identifier-argument
+     * factoring.
+     */
+    bool factor_repeated_vector_args;
+    /*
+     * Phase 29.2 — swizzle-alphabet selection. 0 = Auto, 1 = xyzw,
+     * 2 = rgba, 3 = stpq; any other value falls back to Auto.
+     */
+    int32_t swizzle_alphabet;
+    /*
+     * Phase 30.1 — multi-call-site, multi-statement aggressive inlining.
+     */
+    bool aggressive_inlining;
+    /*
+     * Phase 30.2 — cross-statement common subexpression elimination via
+     * macro extraction.
+     */
+    bool macro_cse;
+    /*
+     * Phase 30.4 — declaration hoisting / merge-across-function.
+     */
+    bool hoist_declarations;
 } UshaderGolfOptions;
 
 typedef struct {
@@ -50,6 +80,26 @@ typedef struct {
     uintptr_t functions_inlined;
     uintptr_t algebraic_identities_simplified;
     uintptr_t common_subexpressions_eliminated;
+    /*
+     * ROADMAP.md Phase 37.4 -- see AggressiveStats::statement_sequences_fused.
+     */
+    uintptr_t statement_sequences_fused;
+    /*
+     * ROADMAP.md Phase 37.4 -- see AggressiveStats::vector_args_factored.
+     */
+    uintptr_t vector_args_factored;
+    /*
+     * ROADMAP.md Phase 37.4 -- see AggressiveStats::swizzles_recolored.
+     */
+    uintptr_t swizzles_recolored;
+    /*
+     * ROADMAP.md Phase 37.4 -- see AggressiveStats::loop_headers_golfed.
+     */
+    uintptr_t loop_headers_golfed;
+    /*
+     * ROADMAP.md Phase 37.4 -- see AggressiveStats::loop_forms_normalized.
+     */
+    uintptr_t loop_forms_normalized;
 } UshaderGolfStats;
 
 typedef struct {
@@ -79,6 +129,36 @@ char *ushader_golf_traced(const char *source,
                           const char *protected_names,
                           UshaderGolfStats *out_stats,
                           char **out_trace_json);
+
+/*
+ * golf.md Phase 32.1 -- bounded "Golf harder" pass-order/subset search.
+ * `out_applied_json` receives a JSON array of {pass_name, from, to}
+ * describing every toggle the search flipped relative to `options`.
+ */
+char *ushader_golf_harder(const char *source,
+                          UshaderGolfOptions options,
+                          const char *protected_names,
+                          bool compression_based,
+                          UshaderGolfStats *out_stats,
+                          bool *out_improved,
+                          char **out_applied_json);
+
+/*
+ * ROADMAP.md Phase 37.1/37.3 -- "Golf harder", extended: a simulated-
+ * annealing search bounded by both max_iterations and max_duration_ms
+ * (wall-clock safety net, 2000 recommended default per Phase 37.1).
+ * objective: 0 = raw bytes, 1 = DEFLATE-estimated bytes, 2 = Twigl
+ * geekest-mode 280-character tweet budget.
+ */
+char *ushader_golf_harder_deep(const char *source,
+                               UshaderGolfOptions options,
+                               const char *protected_names,
+                               int32_t objective,
+                               uintptr_t max_iterations,
+                               uint64_t max_duration_ms,
+                               UshaderGolfStats *out_stats,
+                               bool *out_improved,
+                               char **out_applied_json);
 
 char *ushader_twigl_rewrite(const char *source, int32_t mode, bool es300);
 

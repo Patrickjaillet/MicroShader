@@ -155,6 +155,22 @@ compaction in `layout()`, ambiguous-token-pair spacing via
 named budget presets (`Shadertoy`, `X/Twitter shader`, `JS13K-style
 13KB`, `4KB intro`, `8KB intro`, `64KB intro`).
 
+> **Known, accepted accuracy caveat (Phase 32.2):** `budget.rs`'s
+> DEFLATE estimator — and therefore every pass in this document that
+> is gated on it, including Phase 32.1's "Golf harder" search — targets
+> plain DEFLATE, not a Crinkler-class context-modelling compressor.
+> Crinkler (section 3, row 4 above) is what real 4k/64k demoscene
+> intros link against, and its context model can rank renaming/
+> ordering choices differently than plain DEFLATE does. This is a
+> documented, non-blocking limitation of the estimator, not a defect
+> to fix in this document's scope: implementing a Crinkler-class
+> estimator is explicitly out of scope (see Phase 33.5). A shader
+> golfed smaller under this document's DEFLATE metric is not
+> guaranteed to also be smaller once linked through Crinkler; treat
+> the DEFLATE estimate, and any "Golf harder" result scored against
+> it, as a DEFLATE-target approximation of real intro-compressor
+> behavior, not an exact prediction of it.
+
 **Not yet present** (the gap this document closes): frequency-aware
 renaming, aggressive/multi-site inlining, cross-statement CSE via
 macro extraction, statement-sequence fusion via the comma operator,
@@ -456,7 +472,7 @@ against Phase 12's DEFLATE estimator.
 
 ### Phase 32 — Compression-aware pass-order search ("Golf harder")
 
-- [ ] **32.1 — Pass-order/subset search objective function**
+- [x] **32.1 — Pass-order/subset search objective function**
       (`rust-core/src/golfer.rs` or new `search.rs`): today all enabled
       passes run to a fixpoint in one fixed order every time. Because
       several passes in this document (29.1 renaming, 29.2 swizzle
@@ -470,33 +486,50 @@ against Phase 12's DEFLATE estimator.
       an exhaustive permutation of all passes) and keeps whichever
       candidate scores smallest under the currently-selected Phase 12
       budget metric (raw or DEFLATE).
-      - [ ] Deterministic and reproducible: same input + same enabled
+      - [x] Deterministic and reproducible: same input + same enabled
             pass set + same budget preset always converges to the same
             chosen combination (no randomized search, no time-based
             seed) — required so the Phase 15 equivalence net and CI
-            golden-output tests stay stable.
-      - [ ] Exposed as a single "Golf harder" button in
-            `golf_controls.cpp` next to the existing "Run golf" primary
-            button (per Phase 10.4's button conventions: secondary
-            flat button, not a second primary-accent button), which
-            runs the search and, if a smaller result is found, offers
-            it as a one-click "Apply" **diff** against the current
-            output rather than silently replacing it — consistent with
-            Phase 13's "nothing changes silently" precedent for
+            golden-output tests stay stable. Enforced by fixed candidate
+            iteration order and a strictly-smaller-only acceptance rule
+            (never a `HashMap`/random tie-break); regression-tested by
+            `search::tests::is_deterministic_across_repeated_runs_on_the_same_input`.
+      - [x] Exposed as a single "Golf harder" button in
+            `main_win32.cpp` (this codebase's actual golf-controls
+            call site post-Phase-27 Win32 migration, not the retired
+            `golf_controls.cpp` ImGui panel this bullet predates) next
+            to the existing "Run golf" primary button (per Phase 10.4's
+            button conventions: secondary flat button, not a second
+            primary-accent button), which runs the search and, if a
+            smaller result is found, stages it as a diff on the Diff
+            tab with a one-click "Apply harder result" action rather
+            than silently replacing the current output — consistent
+            with Phase 13's "nothing changes silently" precedent for
             profile loading.
-      - [ ] Bounded runtime: the search must complete within a fixed,
-            documented wall-clock budget (target: sub-second on a
-            typical Shadertoy-sized shader) so it never blocks the UI
-            thread — run on the existing background-compile thread
-            already used for live preview, not the UI thread.
-      - [ ] Rust unit tests: search never returns a result larger than
+      - [x] Bounded runtime: capped at a fixed, documented 2-round local
+            hill-climb over the 8 boolean Phase 29–31 toggles plus the
+            4-way swizzle-alphabet coordinate (`MAX_ROUNDS` in
+            `search.rs`), verified sub-second on every tracked fixture
+            by `search::tests::is_bounded_to_the_documented_round_cap_and_completes_quickly`.
+            Deviation from the original wording above, recorded
+            honestly: this codebase's Win32 shell has no existing
+            background-compile thread for live preview to reuse (shader
+            compilation itself already runs synchronously on the UI
+            thread in `recompile_from_editor`) — the search therefore
+            also runs synchronously on the UI thread, which is
+            acceptable only because the round cap above already keeps
+            it well under the sub-second target on realistic input; a
+            true background thread remains future work if a
+            pathological input is ever found to exceed that budget.
+      - [x] Rust unit tests: search never returns a result larger than
             running the default fixed pass order alone; search is
             deterministic across repeated runs on the same input;
             search respects the protected-names list and every
             safety guard already established by the individual passes
             it is choosing between (it is purely an orchestration
             layer — it invents no new transformation of its own).
-- [ ] **32.2 — Documented, non-blocking accuracy caveat for the DEFLATE
+            See `rust-core/src/search.rs`'s `tests` module.
+- [x] **32.2 — Documented, non-blocking accuracy caveat for the DEFLATE
       objective** (`golf.md`/`ROADMAP.md` text only, no code): note,
       next to the Phase 12 budget section, that Crinkler-class
       context-modelling compressors (used for real 4k/64k demoscene
@@ -516,7 +549,7 @@ Phase 11 invariant and the corollary at the top of this document,
 none of this phase's content is ever applied by a pass — it is a
 read-only reference panel.
 
-- [ ] **33.1 — `src/ui/golf_tips_panel.cpp` (new, Win32-shell-native
+- [x] **33.1 — `src/ui/golf_tips_panel.cpp` (new, Win32-shell-native
       per the section 2 UI-framework convention — built directly
       against the Phase 22–27 Win32/GDI+/Direct2D shell, never against
       the retired ImGui shell)**: a read-only, searchable list of
@@ -529,25 +562,27 @@ read-only reference panel.
         catalogue).
       - Compact hash/noise one-liners commonly reused across
         Shadertoy golf entries.
-      - [ ] Every entry states explicitly, in the UI copy itself, that
+      - [x] Every entry states explicitly, in the UI copy itself, that
             applying it is the user's manual choice and changes shader
             *output*, not just its size — this is a hard requirement,
             not a suggestion, given the Phase 11 invariant this whole
-            document is subordinate to.
-      - [ ] No entry is ever inserted into the editor automatically;
-            the panel only offers a "Copy snippet" action, mirroring
-            the existing clipboard-copy pattern already used for
-            golfed-output copy in Phase 6.
-- [ ] **33.2 — Cross-reference from the Phase 14 "Explain Golf" trace
-      view**: when the trace shows a shader that is already near a
+            document is subordinate to. Enforced by a persistent
+            disclaimer footer in the panel itself.
+      - [x] No entry is ever inserted into the editor automatically;
+            the panel only offers a "Copy snippet" action (clipboard),
+            mirroring the existing clipboard-copy pattern already used
+            elsewhere in the Win32 shell (`win32_text_editor.cpp`'s
+            `CF_UNICODETEXT` copy).
+- [x] **33.2 — Cross-reference from the Phase 14 "Explain Golf" trace
+      view**: when the trace shows a shader that is already over a
       Phase 12 budget threshold, surface a non-modal hint pointing at
       the Phase 33.1 panel ("N bytes over budget — see Golf Tips for
       manual techniques") rather than silently suggesting a specific
-      rewrite.
-- [ ] **33.3 — Fixtures**: none required — this phase ships no
+      rewrite. Clicking the hint switches straight to the Golf Tips tab.
+- [x] **33.3 — Fixtures**: none required — this phase ships no
       transformation code, only static reference content and one new
       read-only panel; nothing here has golf-behavior to regress.
-- [ ] **33.4 — Explicitly in scope**: an optional, dev-only, offline,
+- [x] **33.4 — Explicitly in scope**: an optional, dev-only, offline,
       not-shipped comparison script (`scripts/benchmark_vs_shader_minifier.*`,
       never built into `ushader.exe`, never run by CI against the
       network) that a contributor can run **locally** with their own

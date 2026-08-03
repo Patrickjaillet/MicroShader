@@ -3,10 +3,12 @@
 #include "../src/render/shader_runner.h"
 #include "../src/render/framebuffer.h"
 #include "../src/render/default_shader.h"
+#include "ushader/golf_core.h"
 
 #include <windows.h>
 
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -350,6 +352,138 @@ int main()
             }
             ungolfed_runner.destroy();
             loop_golfed_runner.destroy();
+        }
+    }
+
+    // golf.md ROADMAP.md 6bis.9: Phase 30's four passes (aggressive
+    // inlining, macro CSE, statement fusion, declaration hoisting) must
+    // never change rendered output either -- render-level proof, not just
+    // the Rust-side token/byte-count assertions in rust-core's own tests.
+    // Each golfed source below is the exact, hand-verified output the
+    // relevant pass produces for its fixture with only that one
+    // `AggressiveOptions` field enabled (protected name: "mainImage").
+    auto check_phase_30_fixture_equivalence = [&](const char* fixture_path, const char* golfed_source, const char* label)
+    {
+        std::string original_source = read_text_file(fixture_path);
+        if (original_source.empty())
+        {
+            std::fprintf(stderr, "could not read %s\n", fixture_path);
+            failures += 1;
+            return;
+        }
+
+        ShaderRunner original_runner;
+        ShaderRunner golfed_pass_runner;
+        std::string original_error;
+        std::string golfed_pass_error;
+        if (!original_runner.compile(original_source, original_error))
+        {
+            std::fprintf(stderr, "%s (original) failed to compile: %s\n", fixture_path, original_error.c_str());
+            failures += 1;
+        }
+        else if (!golfed_pass_runner.compile(golfed_source, golfed_pass_error))
+        {
+            std::fprintf(stderr, "%s (%s) failed to compile: %s\n", fixture_path, label, golfed_pass_error.c_str());
+            failures += 1;
+        }
+        else
+        {
+            OffscreenFramebuffer original_fb;
+            OffscreenFramebuffer golfed_pass_fb;
+            EquivalenceSampleConfig config;
+            EquivalenceRunResult check_result = run_equivalence_check(
+                original_runner, golfed_pass_runner, original_fb, golfed_pass_fb, config, 640, 360);
+            original_fb.destroy();
+            golfed_pass_fb.destroy();
+
+            if (!check_result.valid)
+            {
+                std::fprintf(stderr, "%s equivalence run did not complete\n", fixture_path);
+                failures += 1;
+            }
+            else if (check_result.samples_failed != 0)
+            {
+                std::fprintf(stderr, "%s: %d/%d samples differ between original and %s, max delta %d\n",
+                    fixture_path, check_result.samples_failed, check_result.samples_total, label, check_result.worst_max_delta);
+                failures += 1;
+            }
+            else
+            {
+                std::printf("%s: %d/%d samples bit-exact between original and %s\n",
+                    fixture_path, check_result.samples_total, check_result.samples_total, label);
+            }
+        }
+        original_runner.destroy();
+        golfed_pass_runner.destroy();
+    };
+
+    check_phase_30_fixture_equivalence(
+        "fixtures/aggressive_inlining.glsl",
+        "float a;void mainImage(out vec4 d,in vec2 c){a=0.;a=a+c.x;a=a*.5;a=a+1.;a=a+c.y;a=a*.5;a=a+1.;d=vec4(a,a,a,1.);}",
+        "aggressive_inlining");
+
+    check_phase_30_fixture_equivalence(
+        "fixtures/macro_cse.glsl",
+        "#define A dot(a,a)\n"
+        "float b(vec3 a){return A-1.;}float c(vec3 a){return A-2.;}void mainImage(out vec4 d,in vec2 e){vec3 a=vec3(e,0.);float f=A;d=vec4(f,b(a),c(a),1.);}",
+        "macro_cse");
+
+    check_phase_30_fixture_equivalence(
+        "fixtures/statement_fusion.glsl",
+        "void mainImage(out vec4 e,in vec2 f){vec2 d=f/iResolution.xy;float a=d.x;float b=d.y;float c=.5;a=a*2.,b=b*2.,c=c*2.,a=a+.1,b=b+.1,c=c+.1,e=vec4(a,b,c,1.);}",
+        "fuse_statement_sequences");
+
+    check_phase_30_fixture_equivalence(
+        "fixtures/declaration_hoisting.glsl",
+        "void mainImage(out vec4 a,in vec2 b){float c=1.,d=2.;a=vec4(b,0.,1.);a=vec4(c,d,0.,1.);}",
+        "hoist_declarations");
+
+    // ROADMAP.md Phase 37.5: every combination `golf_harder_deep`'s
+    // simulated-annealing search can select must still pass the Phase 15
+    // equivalence net -- exercised for real here, not with a
+    // hand-verified string, since the search is randomized (deterministic
+    // per seed, but not hand-computable): whatever combination it picks
+    // for these fixtures must still render pixel-identically to the
+    // original, proving the search widens the space of combinations tried
+    // without ever lowering the correctness bar the individual passes are
+    // already held to.
+    {
+        UshaderGolfOptions search_base{
+            true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true,
+            true, true, true, 0, false, true, true
+        };
+        const char* deep_search_fixtures[] = {
+            "fixtures/macro_cse.glsl",
+            "fixtures/aggressive_inlining.glsl",
+            "fixtures/loop_header_golf.glsl",
+        };
+        for (const char* fixture_path : deep_search_fixtures)
+        {
+            std::string original_source = read_text_file(fixture_path);
+            if (original_source.empty())
+            {
+                std::fprintf(stderr, "could not read %s\n", fixture_path);
+                failures += 1;
+                continue;
+            }
+
+            UshaderGolfStats deep_stats{};
+            bool improved = false;
+            char* applied_json = nullptr;
+            char* deep_golfed = ushader_golf_harder_deep(original_source.c_str(), search_base, "mainImage",
+                1, 500, 2000, &deep_stats, &improved, &applied_json);
+            if (deep_golfed == nullptr)
+            {
+                std::fprintf(stderr, "%s: ushader_golf_harder_deep returned null\n", fixture_path);
+                failures += 1;
+                if (applied_json != nullptr) { ushader_free_string(applied_json); }
+                continue;
+            }
+            std::string deep_source(deep_golfed);
+            ushader_free_string(deep_golfed);
+            if (applied_json != nullptr) { ushader_free_string(applied_json); }
+
+            check_phase_30_fixture_equivalence(fixture_path, deep_source.c_str(), "golf_harder_deep");
         }
     }
 

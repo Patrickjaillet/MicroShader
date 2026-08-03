@@ -21,7 +21,7 @@ namespace
         const wchar_t* label;
     };
 
-    std::array<CheckboxEntry, 19> checkbox_entries(GolfPassToggles& t)
+    std::array<CheckboxEntry, 22> checkbox_entries(GolfPassToggles& t)
     {
         return {{
             { &t.eliminate_dead_locals, L"Dead locals" },
@@ -43,6 +43,9 @@ namespace
             { &t.fuse_statement_sequences, L"Fuse statement sequences" },
             { &t.frequency_aware_renaming, L"Freq-aware renaming" },
             { &t.factor_repeated_vector_args, L"Factor repeated vector args" },
+            { &t.aggressive_inlining, L"Aggressive inlining" },
+            { &t.macro_cse, L"Macro CSE" },
+            { &t.hoist_declarations, L"Hoist declarations" },
         }};
     }
 

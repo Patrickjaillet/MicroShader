@@ -18,7 +18,7 @@ reverse-engineering `golf_profile.cpp`.
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 4,
   "aggressive": true,
   "eliminate_dead_locals": true,
   "eliminate_dead_stores": true,
@@ -37,14 +37,24 @@ reverse-engineering `golf_profile.cpp`.
   "simplify_algebraic_identities": false,
   "eliminate_common_subexpressions": true,
   "frequency_aware_renaming": false,
+  "factor_repeated_vector_args": true,
+  "swizzle_alphabet": 0,
+  "fuse_statement_sequences": true,
+  "aggressive_inlining": false,
+  "macro_cse": true,
+  "hoist_declarations": true,
   "protected_names": "iTime,iResolution,mainImage",
   "budget_preset": "JS13K-style 13KB"
 }
 ```
 
-(`fixtures/sample.ushaderprofile` in the repository is this exact
-file, and is what `tests/golf_profile_roundtrip_test.cpp` loads and
-round-trips against the real Rust golfing engine.)
+(`fixtures/sample.ushaderprofile` in the repository is an older,
+`schema_version: 1` file predating the `factor_repeated_vector_args`/
+`swizzle_alphabet`/`fuse_statement_sequences` fields above — kept
+exactly as-is on purpose, since it is what
+`tests/golf_profile_roundtrip_test.cpp` loads to prove a pre-Phase-29
+profile still round-trips correctly against the real Rust golfing
+engine under the backward-compatibility rules below.)
 
 ## Fields
 
@@ -57,6 +67,9 @@ round-trips against the real Rust golfing engine.)
 | `factor_repeated_vector_args` | boolean | Phase 29.3 pass: collapses `vecN(a,a,...,a)` constructor calls whose arguments are all the same pure identifier expression down to `vecN(a)`. Introduced in schema version 2. Missing field defaults to `true`. |
 | `swizzle_alphabet` | integer | Phase 29.2 swizzle-letter-alphabet choice: `0` = Auto (try `.xyzw`/`.rgba`/`.stpq` against the DEFLATE estimator and keep the smallest), `1` = `.xyzw`, `2` = `.rgba`, `3` = `.stpq`. Introduced in schema version 2. Missing field defaults to `0` (Auto). |
 | `fuse_statement_sequences` | boolean | Phase 30.3 pass: fuses a maximal run of two or more adjacent assignment/increment-decrement/call expression-statements in the same block into a single comma-operator statement. Introduced in schema version 3. Missing field defaults to `true`. |
+| `aggressive_inlining` | boolean | Phase 30.1 pass: multi-call-site, multi-statement function inlining, only committed when it measures strictly smaller (raw and, under a compression-based budget preset, DEFLATE-estimated). The one pass in this document that can legitimately make output larger if mis-tuned, so it is never turned on by the "Maximum" built-in profile — an explicit opt-in even for competitive users. Introduced in schema version 4. Missing field defaults to `false`. |
+| `macro_cse` | boolean | Phase 30.2 pass: whole-shader cross-statement common subexpression elimination via `#define` macro extraction, distinct from the always-available straight-line `eliminate_common_subexpressions` pass above. Introduced in schema version 4. Missing field defaults to `true`. |
+| `hoist_declarations` | boolean | Phase 30.4 pass: relocates a later same-type declaration backward to merge with an earlier one, only across a conservatively-proven-safe straight-line gap. Introduced in schema version 4. Missing field defaults to `true`. |
 | `protected_names` | string | Comma-separated identifiers the golfing engine must never rename. Entries are trimmed of surrounding whitespace; empty entries (e.g. a trailing comma) are dropped. May be `""`. |
 | `budget_preset` | string | The name of one of the built-in size-budget presets in `ui/budget_presets.cpp` (`Shadertoy`, `X/Twitter shader`, `JS13K-style 13KB`, `4KB intro`, `8KB intro`, `64KB intro`). An unrecognized or missing value falls back to no preset selected ("Custom") rather than a load failure. |
 
@@ -104,7 +117,8 @@ out.
 | *(absent)* | ≤ 2.1.0 | Equivalent to `1`. No `schema_version` field was written. |
 | `1` | 2.2.0+ | Adds the `schema_version` field itself; no other field changed shape or meaning. |
 | `2` | Phase 29.2/29.3 | Adds `factor_repeated_vector_args` and `swizzle_alphabet`. Both are purely additive/optional fields (a profile without them behaves exactly as before), bumped anyway per this project's own convention of bumping on every new pass-toggle field, stricter than the "purely additive fields don't need a bump" rule below. |
-| `3` | Phase 30.3 | Adds `fuse_statement_sequences`, for the same reason as version 2 above. Current format. |
+| `3` | Phase 30.3 | Adds `fuse_statement_sequences`, for the same reason as version 2 above. |
+| `4` | Phase 30.1/30.2/30.4 | Adds `aggressive_inlining`, `macro_cse`, `hoist_declarations`, for the same reason as version 2 above. Current format. |
 
 Future format changes that add a required field, change a field's
 type, or change what a value means (as opposed to purely additive,

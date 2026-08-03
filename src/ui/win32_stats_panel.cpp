@@ -49,11 +49,13 @@ void Win32StatsPanel::layout(int x, int y, int width, int height)
 }
 
 void Win32StatsPanel::set_stats(const UshaderGolfStats& stats, std::size_t golfed_byte_size,
-    const UshaderBudgetResult& budget, int budget_preset_index, bool has_stats_data)
+    const UshaderBudgetResult& budget, const UshaderBudgetResult& original_budget,
+    int budget_preset_index, bool has_stats_data)
 {
     last_stats = stats;
     last_golfed_bytes = golfed_byte_size;
     last_budget = budget;
+    last_original_budget = original_budget;
     last_preset_index = budget_preset_index;
     has_data = has_stats_data;
 }
@@ -196,4 +198,61 @@ void Win32StatsPanel::paint(ID2D1RenderTarget* render_target, const ThemeBrushes
         draw_badge(preset.raw_limit, static_cast<std::size_t>(last_budget.raw_bytes));
         draw_badge(preset.deflate_limit, static_cast<std::size_t>(last_budget.deflate_bytes));
     }
+
+    // ROADMAP.md Phase 37.4 -- "Golf Power" dashboard: replaces a single
+    // opaque reduction-percentage line with raw AND DEFLATE-estimated
+    // reduction, which of Phases 29-37's newer passes actually fired this
+    // run, and (via the badges above) how far the output sits from the
+    // active budget preset.
+    y += 8.0f;
+    dynamic_brush->SetColor(D2D1::ColorF(tokens::text_secondary.x, tokens::text_secondary.y, tokens::text_secondary.z));
+    draw_line("GOLF POWER", brushes.text_secondary);
+    y += 4.0f;
+
+    double deflate_reduction_pct = 0.0;
+    if (last_original_budget.deflate_bytes > 0)
+    {
+        deflate_reduction_pct = 100.0 * (1.0
+            - static_cast<double>(last_budget.deflate_bytes) / static_cast<double>(last_original_budget.deflate_bytes));
+    }
+    std::snprintf(buffer, sizeof(buffer), "Raw reduction: %.1f%%   DEFLATE-estimated reduction: %.1f%%",
+        last_stats.reduction_pct, deflate_reduction_pct);
+    draw_line(buffer, brushes.text_primary);
+
+    struct FiredPass
+    {
+        const char* label;
+        uintptr_t count;
+    };
+    const FiredPass fired_candidates[] = {
+        { "freq-aware renaming", last_stats.renamed_count },
+        { "vector args factored", last_stats.vector_args_factored },
+        { "swizzles recolored", last_stats.swizzles_recolored },
+        { "statement fusion", last_stats.statement_sequences_fused },
+        { "aggressive inlining", last_stats.functions_inlined },
+        { "macro CSE", last_stats.common_subexpressions_eliminated },
+        { "declarations hoisted", last_stats.declarations_merged },
+        { "loop headers golfed", last_stats.loop_headers_golfed },
+        { "loop forms normalized", last_stats.loop_forms_normalized },
+    };
+    std::string fired_line = "Passes fired: ";
+    bool any_fired = false;
+    for (const FiredPass& candidate : fired_candidates)
+    {
+        if (candidate.count == 0)
+        {
+            continue;
+        }
+        if (any_fired)
+        {
+            fired_line += ", ";
+        }
+        fired_line += candidate.label;
+        any_fired = true;
+    }
+    if (!any_fired)
+    {
+        fired_line += "none this run";
+    }
+    draw_line(fired_line, brushes.text_primary);
 }

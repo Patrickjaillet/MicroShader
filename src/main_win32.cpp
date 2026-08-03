@@ -16,11 +16,13 @@
 #include "ui/win32_command_palette.h"
 #include "ui/win32_keybindings.h"
 #include "ui/win32_golf_controls.h"
+#include "ui/budget_presets.h"
 #include "ui/win32_stats_panel.h"
 #include "ui/win32_appearance_panel.h"
 #include "ui/win32_appearance_settings.h"
 #include "ui/win32_about_panel.h"
 #include "ui/win32_twigl_export_panel.h"
+#include "ui/golf_tips_panel.h"
 #include "ui/win32_tool_button.h"
 #include "ui/theme_tokens.h"
 #include "ui/glsl_format.h"
@@ -62,6 +64,7 @@ namespace
     constexpr int kAppearanceTabIndex = 6;
     constexpr int kAboutTabIndex = 7;
     constexpr int kTwiglExportTabIndex = 8;
+    constexpr int kGolfTipsTabIndex = 9;
     constexpr int kInspectorWidth = 300;
     constexpr int kRunGolfButtonHeight = 32;
     constexpr int kMiniPreviewWidth = 420;
@@ -104,7 +107,12 @@ namespace
     bool g_appearance_slider_dragging = false;
     Win32AboutPanel g_about_panel;
     Win32TwiglExportPanel g_twigl_export_panel;
+    Win32GolfTipsPanel g_golf_tips_panel;
     Win32ToolButton g_run_golf_button;
+    Win32ToolButton g_golf_harder_button;
+    Win32ToolButton g_deep_search_toggle_button;
+    bool g_deep_search_enabled = false;
+    Win32ToolButton g_apply_harder_button;
     Win32ToolButton g_formatted_view_button;
     WglViewportHost g_viewport;
     ShaderRunner g_shader_runner;
@@ -127,6 +135,12 @@ namespace
     bool g_editor_dragging = false;
     bool g_formatted_view = false;
     std::string g_golfed_text_raw;
+    bool g_harder_pending = false;
+    std::string g_harder_pending_code;
+    UshaderGolfStats g_harder_pending_stats{};
+    bool g_over_budget_hint = false;
+    long long g_over_budget_bytes = 0;
+    IDWriteTextFormat* g_hint_text_format = nullptr;
     std::chrono::steady_clock::time_point g_shimmer_until;
     ULONG_PTR g_gdiplus_token = 0;
 
@@ -245,11 +259,20 @@ namespace
         g_appearance_panel.layout(0, content_top, main_width, content_height);
         g_about_panel.layout(0, content_top, main_width, content_height);
         g_twigl_export_panel.layout(0, content_top, main_width, content_height);
+        g_golf_tips_panel.layout(0, content_top, main_width, content_height);
         g_command_palette.layout(window_width, window_height);
 
         g_golf_controls.layout(window_width - kInspectorWidth, content_top + kRunGolfButtonHeight + 8,
             kInspectorWidth, content_height - kRunGolfButtonHeight - 8);
-        g_run_golf_button.layout(window_width - kInspectorWidth + 8, content_top + 8, kInspectorWidth - 16, kRunGolfButtonHeight - 8);
+        int inspector_x = window_width - kInspectorWidth;
+        int golf_buttons_width = kInspectorWidth - 16 - 16;
+        int run_golf_width = static_cast<int>(golf_buttons_width * 0.48);
+        int golf_harder_width = static_cast<int>(golf_buttons_width * 0.34);
+        int deep_search_width = golf_buttons_width - run_golf_width - golf_harder_width;
+        g_run_golf_button.layout(inspector_x + 8, content_top + 8, run_golf_width, kRunGolfButtonHeight - 8);
+        g_golf_harder_button.layout(inspector_x + 8 + run_golf_width + 8, content_top + 8, golf_harder_width, kRunGolfButtonHeight - 8);
+        g_deep_search_toggle_button.layout(inspector_x + 8 + run_golf_width + 8 + golf_harder_width + 8, content_top + 8, deep_search_width, kRunGolfButtonHeight - 8);
+        g_apply_harder_button.layout(main_width - 176, content_top + 8, 168, 24);
         g_formatted_view_button.layout(main_width - 132, content_top + 8, 120, 24);
 
         if (g_viewport.hwnd() != nullptr)
@@ -323,10 +346,28 @@ namespace
         else if (g_tab_strip.active_index() == kDiffTabIndex)
         {
             g_diff_view.paint(g_render_target, g_brushes);
+            if (g_harder_pending)
+            {
+                g_apply_harder_button.paint(g_render_target, g_brushes, L"Apply harder result", true);
+                accessibility_register("Apply harder result", AccessibleRole::Button,
+                    static_cast<float>(main_width - 176), static_cast<float>(content_top + 8), 168.0f, 24.0f, true);
+            }
         }
         else if (g_tab_strip.active_index() == kTraceTabIndex)
         {
             g_trace_view.paint(g_render_target, g_brushes);
+            if (g_over_budget_hint && g_hint_text_format != nullptr)
+            {
+                D2D1_RECT_F hint_rect = D2D1::RectF(0.0f, static_cast<float>(content_top),
+                    static_cast<float>(main_width), static_cast<float>(content_top + 28));
+                g_render_target->FillRectangle(hint_rect, g_brushes.bg_panel_raised);
+                wchar_t hint_text[160];
+                swprintf_s(hint_text, L"%lld bytes over budget — see Golf Tips for manual techniques", g_over_budget_bytes);
+                g_render_target->DrawText(hint_text, static_cast<UINT32>(wcslen(hint_text)),
+                    g_hint_text_format, hint_rect, g_brushes.text_secondary);
+                accessibility_register("Golf Tips hint", AccessibleRole::Button,
+                    hint_rect.left, hint_rect.top, hint_rect.right - hint_rect.left, hint_rect.bottom - hint_rect.top, true);
+            }
         }
         else if (g_tab_strip.active_index() == kStatsTabIndex)
         {
@@ -344,6 +385,10 @@ namespace
         {
             g_twigl_export_panel.paint(g_render_target, g_brushes);
         }
+        else if (g_tab_strip.active_index() == kGolfTipsTabIndex)
+        {
+            g_golf_tips_panel.paint(g_render_target, g_brushes);
+        }
 
         {
             D2D1_RECT_F inspector_bg = D2D1::RectF(static_cast<float>(window_width - kInspectorWidth), static_cast<float>(content_top),
@@ -351,8 +396,20 @@ namespace
             g_render_target->FillRectangle(inspector_bg, g_brushes.bg_panel);
             g_run_golf_button.paint(g_render_target, g_brushes, L"Golf", true);
             accessibility_register("Golf", AccessibleRole::Button,
-                static_cast<float>(window_width - kInspectorWidth + 8), static_cast<float>(content_top + 8),
-                static_cast<float>(kInspectorWidth - 16), static_cast<float>(kRunGolfButtonHeight - 8), true);
+                static_cast<float>(g_run_golf_button.origin_x_px()), static_cast<float>(g_run_golf_button.origin_y_px()),
+                static_cast<float>(g_run_golf_button.width_in_px()), static_cast<float>(g_run_golf_button.height_in_px()), true);
+            g_golf_harder_button.paint(g_render_target, g_brushes, L"Golf harder", false);
+            accessibility_register("Golf harder", AccessibleRole::Button,
+                static_cast<float>(g_golf_harder_button.origin_x_px()), static_cast<float>(g_golf_harder_button.origin_y_px()),
+                static_cast<float>(g_golf_harder_button.width_in_px()), static_cast<float>(g_golf_harder_button.height_in_px()), true);
+            // ROADMAP.md Phase 37.1 -- when checked, "Golf harder" runs the
+            // bounded simulated-annealing search (golf_harder_deep) instead
+            // of Phase 32.1's fast deterministic hill-climb.
+            g_deep_search_toggle_button.paint(g_render_target, g_brushes, L"Deep", g_deep_search_enabled);
+            accessibility_register_toggle("Deep search", AccessibleRole::CheckBox,
+                static_cast<float>(g_deep_search_toggle_button.origin_x_px()), static_cast<float>(g_deep_search_toggle_button.origin_y_px()),
+                static_cast<float>(g_deep_search_toggle_button.width_in_px()), static_cast<float>(g_deep_search_toggle_button.height_in_px()),
+                true, g_deep_search_enabled);
             g_golf_controls.paint(g_render_target, g_brushes);
 
             D2D1_RECT_F mini_bg = D2D1::RectF(static_cast<float>(window_width - kInspectorWidth - kMiniPreviewWidth),
@@ -393,7 +450,12 @@ namespace
         g_appearance_panel.destroy();
         g_about_panel.destroy();
         g_twigl_export_panel.destroy();
+        g_golf_tips_panel.destroy();
+        if (g_hint_text_format != nullptr) { g_hint_text_format->Release(); g_hint_text_format = nullptr; }
         g_run_golf_button.destroy();
+        g_golf_harder_button.destroy();
+        g_deep_search_toggle_button.destroy();
+        g_apply_harder_button.destroy();
         g_formatted_view_button.destroy();
 
         g_tab_strip.create(g_render_target, g_dwrite_factory);
@@ -407,14 +469,55 @@ namespace
         g_appearance_panel.create(g_render_target, g_dwrite_factory);
         g_about_panel.create(g_render_target, g_dwrite_factory);
         g_twigl_export_panel.create(g_render_target, g_dwrite_factory);
+        g_golf_tips_panel.create(g_render_target, g_dwrite_factory);
+        g_dwrite_factory->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, ui_font_pt(13.0f), L"en-us", &g_hint_text_format);
+        if (g_hint_text_format != nullptr) { g_hint_text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); }
         g_run_golf_button.create(g_render_target, g_dwrite_factory);
+        g_golf_harder_button.create(g_render_target, g_dwrite_factory);
+        g_deep_search_toggle_button.create(g_render_target, g_dwrite_factory);
+        g_apply_harder_button.create(g_render_target, g_dwrite_factory);
         g_formatted_view_button.create(g_render_target, g_dwrite_factory);
 
         layout_chrome(hwnd);
     }
 
+    // golf.md Phase 33.2 -- when the golfed output is over the active
+    // budget preset, surfaces a non-modal hint pointing at the Phase 33.1
+    // Golf Tips panel from the "Explain Golf" trace view, rather than
+    // silently suggesting a specific rewrite.
+    void update_over_budget_hint(const UshaderBudgetResult& budget)
+    {
+        g_over_budget_hint = false;
+        g_over_budget_bytes = 0;
+
+        int preset_index = g_golf_controls.budget_preset_index();
+        if (preset_index < 0)
+        {
+            return;
+        }
+        std::size_t preset_count = 0;
+        const BudgetPreset* presets = budget_presets(preset_count);
+        if (static_cast<std::size_t>(preset_index) >= preset_count)
+        {
+            return;
+        }
+        const BudgetPreset& preset = presets[preset_index];
+        if (preset.deflate_limit >= 0 && static_cast<long long>(budget.deflate_bytes) > preset.deflate_limit)
+        {
+            g_over_budget_hint = true;
+            g_over_budget_bytes = static_cast<long long>(budget.deflate_bytes) - preset.deflate_limit;
+        }
+        else if (preset.raw_limit >= 0 && static_cast<long long>(budget.raw_bytes) > preset.raw_limit)
+        {
+            g_over_budget_hint = true;
+            g_over_budget_bytes = static_cast<long long>(budget.raw_bytes) - preset.raw_limit;
+        }
+    }
+
     void recompile_from_editor()
     {
+        g_harder_pending = false;
         g_status_dot.begin_compiling();
         std::string source = g_source_editor.text_utf8();
         std::string compile_error;
@@ -452,7 +555,9 @@ namespace
             g_diff_view.set_diff(compute_unified_diff(source, g_golfed_text_raw));
 
             UshaderBudgetResult budget = ushader_estimate_budget(g_golfed_text_raw.c_str());
-            g_stats_panel.set_stats(stats, g_golfed_text_raw.size(), budget, g_golf_controls.budget_preset_index(), true);
+            UshaderBudgetResult original_budget = ushader_estimate_budget(source.c_str());
+            g_stats_panel.set_stats(stats, g_golfed_text_raw.size(), budget, original_budget, g_golf_controls.budget_preset_index(), true);
+            update_over_budget_hint(budget);
 
             std::string golfed_compile_error;
             g_golfed_gl_ready = g_golfed_runner.compile(g_golfed_text_raw, golfed_compile_error);
@@ -481,6 +586,98 @@ namespace
     void switch_tab(HWND hwnd, int index)
     {
         g_tab_strip.switch_to(index);
+        layout_chrome(hwnd);
+    }
+
+    // golf.md Phase 32.1 -- runs the bounded "Golf harder" search against
+    // the currently golfed output and, only when it finds something
+    // strictly smaller, stages it as a pending diff on the Diff tab rather
+    // than replacing the golfed output silently (Phase 13's "nothing
+    // changes silently" precedent).
+    void run_golf_harder(HWND hwnd)
+    {
+        if (!g_gl_ready)
+        {
+            return;
+        }
+
+        std::string source = g_source_editor.text_utf8();
+        UshaderGolfOptions options = to_golf_options(g_golf_controls.toggles());
+        const std::string& protected_names = g_golf_controls.protected_names();
+
+        bool compression_based = false;
+        int preset_index = g_golf_controls.budget_preset_index();
+        if (preset_index >= 0)
+        {
+            std::size_t preset_count = 0;
+            const BudgetPreset* presets = budget_presets(preset_count);
+            if (static_cast<std::size_t>(preset_index) < preset_count)
+            {
+                compression_based = presets[preset_index].deflate_limit >= 0;
+            }
+        }
+
+        UshaderGolfStats stats{};
+        bool improved = false;
+        char* applied_json = nullptr;
+        char* harder = nullptr;
+        if (g_deep_search_enabled)
+        {
+            // ROADMAP.md Phase 37.3 -- when the Twigl Export tab is the
+            // active tab, score against the geekest-mode 280-character
+            // tweet budget rather than Shadertoy raw/DEFLATE bytes.
+            int32_t objective = g_tab_strip.active_index() == kTwiglExportTabIndex ? 2 : (compression_based ? 1 : 0);
+            harder = ushader_golf_harder_deep(source.c_str(), options,
+                protected_names.empty() ? nullptr : protected_names.c_str(), objective,
+                500, 2000, &stats, &improved, &applied_json);
+        }
+        else
+        {
+            harder = ushader_golf_harder(source.c_str(), options,
+                protected_names.empty() ? nullptr : protected_names.c_str(), compression_based,
+                &stats, &improved, &applied_json);
+        }
+
+        if (harder != nullptr && improved && std::string(harder) != g_golfed_text_raw)
+        {
+            g_harder_pending_code = std::string(harder);
+            g_harder_pending_stats = stats;
+            g_harder_pending = true;
+            g_diff_view.set_diff(compute_unified_diff(g_golfed_text_raw, g_harder_pending_code));
+            switch_tab(hwnd, kDiffTabIndex);
+        }
+        else
+        {
+            g_harder_pending = false;
+        }
+
+        if (harder != nullptr) { ushader_free_string(harder); }
+        if (applied_json != nullptr) { ushader_free_string(applied_json); }
+    }
+
+    void apply_harder_result(HWND hwnd)
+    {
+        if (!g_harder_pending)
+        {
+            return;
+        }
+
+        g_golfed_text_raw = g_harder_pending_code;
+        refresh_golfed_view();
+        g_twigl_export_panel.set_golfed_source(g_golfed_text_raw);
+
+        std::string source = g_source_editor.text_utf8();
+        g_diff_view.set_diff(compute_unified_diff(source, g_golfed_text_raw));
+
+        UshaderBudgetResult budget = ushader_estimate_budget(g_golfed_text_raw.c_str());
+        UshaderBudgetResult original_budget = ushader_estimate_budget(source.c_str());
+        g_stats_panel.set_stats(g_harder_pending_stats, g_golfed_text_raw.size(), budget, original_budget, g_golf_controls.budget_preset_index(), true);
+        update_over_budget_hint(budget);
+
+        std::string golfed_compile_error;
+        g_golfed_gl_ready = g_golfed_runner.compile(g_golfed_text_raw, golfed_compile_error);
+
+        g_harder_pending = false;
         layout_chrome(hwnd);
     }
 
@@ -773,6 +970,10 @@ namespace
             {
                 g_about_panel.on_mouse_move(x, y);
             }
+            if (g_tab_strip.active_index() == kGolfTipsTabIndex)
+            {
+                g_golf_tips_panel.on_mouse_move(x, y);
+            }
             return 0;
         }
         case WM_LBUTTONDOWN:
@@ -790,6 +991,22 @@ namespace
                 SetFocus(hwnd);
                 recompile_from_editor();
                 layout_chrome(hwnd);
+            }
+            else if (g_golf_harder_button.contains(x, y))
+            {
+                SetFocus(hwnd);
+                run_golf_harder(hwnd);
+                layout_chrome(hwnd);
+            }
+            else if (g_deep_search_toggle_button.contains(x, y))
+            {
+                SetFocus(hwnd);
+                g_deep_search_enabled = !g_deep_search_enabled;
+            }
+            else if (g_tab_strip.active_index() == kDiffTabIndex && g_harder_pending && g_apply_harder_button.contains(x, y))
+            {
+                SetFocus(hwnd);
+                apply_harder_result(hwnd);
             }
             else if (g_tab_strip.active_index() == kGolfedTabIndex && g_formatted_view_button.contains(x, y))
             {
@@ -811,6 +1028,13 @@ namespace
                 active_editor()->on_mouse_down(x, y, shift_held);
                 g_editor_dragging = true;
                 SetCapture(hwnd);
+            }
+            else if (g_tab_strip.active_index() == kTraceTabIndex && g_over_budget_hint
+                && y >= static_cast<int>(TitleBar::kHeight + TabStrip::kHeight)
+                && y < static_cast<int>(TitleBar::kHeight + TabStrip::kHeight) + 28)
+            {
+                SetFocus(hwnd);
+                switch_tab(hwnd, kGolfTipsTabIndex);
             }
             else if (g_tab_strip.active_index() == kTraceTabIndex && g_trace_view.contains(x, y))
             {
@@ -852,6 +1076,17 @@ namespace
                     layout_chrome(hwnd);
                 }
             }
+            else if (g_tab_strip.active_index() == kGolfTipsTabIndex && g_golf_tips_panel.contains(x, y))
+            {
+                SetFocus(hwnd);
+                g_golf_tips_panel.on_mouse_down(x, y);
+                std::string golf_tip_snippet_source;
+                if (g_golf_tips_panel.take_pending_snippet_insert(golf_tip_snippet_source))
+                {
+                    g_source_editor.insert_text_utf8(golf_tip_snippet_source);
+                    layout_chrome(hwnd);
+                }
+            }
             return 0;
         }
         case WM_LBUTTONUP:
@@ -889,6 +1124,10 @@ namespace
             {
                 g_twigl_export_panel.on_mouse_wheel(GET_WHEEL_DELTA_WPARAM(wparam));
             }
+            else if (g_tab_strip.active_index() == kGolfTipsTabIndex)
+            {
+                g_golf_tips_panel.on_mouse_wheel(GET_WHEEL_DELTA_WPARAM(wparam));
+            }
             return 0;
         }
         case WM_SETFOCUS:
@@ -917,6 +1156,10 @@ namespace
                 }
             }
             if (g_golf_controls.on_char(static_cast<wchar_t>(wparam)))
+            {
+                return 0;
+            }
+            if (g_tab_strip.active_index() == kGolfTipsTabIndex && g_golf_tips_panel.on_char(static_cast<wchar_t>(wparam)))
             {
                 return 0;
             }
@@ -1004,6 +1247,10 @@ namespace
                 {
                     return 0;
                 }
+            }
+            if (g_tab_strip.active_index() == kGolfTipsTabIndex && g_golf_tips_panel.on_key_down(wparam))
+            {
+                return 0;
             }
             return DefWindowProcW(hwnd, msg, wparam, lparam);
         }
@@ -1133,7 +1380,26 @@ int main()
     {
         return 1;
     }
+    if (!g_golf_tips_panel.create(g_render_target, g_dwrite_factory))
+    {
+        return 1;
+    }
+    g_dwrite_factory->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, ui_font_pt(13.0f), L"en-us", &g_hint_text_format);
+    if (g_hint_text_format != nullptr) { g_hint_text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER); }
     if (!g_run_golf_button.create(g_render_target, g_dwrite_factory))
+    {
+        return 1;
+    }
+    if (!g_golf_harder_button.create(g_render_target, g_dwrite_factory))
+    {
+        return 1;
+    }
+    if (!g_deep_search_toggle_button.create(g_render_target, g_dwrite_factory))
+    {
+        return 1;
+    }
+    if (!g_apply_harder_button.create(g_render_target, g_dwrite_factory))
     {
         return 1;
     }
@@ -1224,7 +1490,12 @@ int main()
     g_stats_panel.destroy();
     g_appearance_panel.destroy();
     g_about_panel.destroy();
+    g_golf_tips_panel.destroy();
+    if (g_hint_text_format != nullptr) { g_hint_text_format->Release(); g_hint_text_format = nullptr; }
     g_run_golf_button.destroy();
+    g_golf_harder_button.destroy();
+    g_deep_search_toggle_button.destroy();
+    g_apply_harder_button.destroy();
     g_formatted_view_button.destroy();
     accessibility_shutdown();
     g_icons.release();

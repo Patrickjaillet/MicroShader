@@ -2798,8 +2798,6 @@ mod tests {
 
         let hoisted_result = golf_with_options(source, hoisted);
         let unhoisted_result = golf_with_options(source, unhoisted);
-        eprintln!("HOISTED>>>{}<<<", hoisted_result.code);
-        eprintln!("UNHOISTED>>>{}<<<", unhoisted_result.code);
 
         assert!(
             estimate_budget(&hoisted_result.code).deflate_bytes
@@ -2809,19 +2807,5 @@ mod tests {
             unhoisted_result.code
         );
         assert!(hoisted_result.stats.aggressive.declarations_merged >= 1);
-    }
-}
-
-#[cfg(test)]
-mod debug_hoist_fixture {
-    #[test]
-    fn debug_fixture_hoist_only() {
-        use crate::golfer::{golf_with_protected_names, AggressiveOptions};
-        let mut o = AggressiveOptions::none();
-        o.hoist_declarations = true;
-        let source = include_str!("../../fixtures/declaration_hoisting.glsl");
-        let r = golf_with_protected_names(source, o, &["mainImage".to_string()]);
-        eprintln!("DEBUGHOIST>>>{}<<<", r.code);
-        eprintln!("MERGED={}", r.stats.aggressive.declarations_merged);
     }
 }

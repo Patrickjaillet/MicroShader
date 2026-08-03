@@ -4,7 +4,135 @@ All notable changes to µShader are documented in this file.
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-08-03
+
+### Fixed
+
+- `UshaderGolfStats` (the C FFI stats struct) was missing
+  `statement_sequences_fused`, `vector_args_factored`,
+  `swizzles_recolored`, `loop_headers_golfed`, and
+  `loop_forms_normalized` entirely, so the C++ UI could never report
+  Phase 29.2/29.3/30.3/31 activity even though the Rust side already
+  tracked all five. Added, matching `AggressiveStats`.
+- ROADMAP.md's Phase 30 test plan (section 6bis) surfaced two real gaps
+  that are now fixed: (1) `aggressive_inlining`, `macro_cse`, and
+  `hoist_declarations` had no `GolfPassToggles` fields at all, so the
+  "Maximum" built-in profile could not actually turn them on for an end
+  user through any UI path — only `fuse_statement_sequences` had made it
+  from `golfer.rs` into the C++ shell. Added the three missing fields
+  end-to-end (checkboxes, profile serialization, `.ushaderprofile`
+  schema bumped to version 4); "Maximum" now turns on
+  `fuse_statement_sequences`/`macro_cse`/`hoist_declarations` together,
+  while `aggressive_inlining` deliberately stays off even there, per
+  Phase 30.1's own rationale (the one Phase 30 pass that can legitimately
+  regress size if mis-tuned). (2) `tests/wgl_equivalence_test.cpp` had no
+  render-level equivalence coverage at all for Phase 30's four fixtures;
+  added a check per fixture, all four now verified 5/5 samples bit-exact.
+
 ### Added
+
+- `ROADMAP.md` Phase 37 ("Golf harder", extended) is now fully
+  implemented. `rust-core/src/deflate.rs` adds a hand-written, RFC
+  1951-conformant DEFLATE encoder (LZ77 + fixed Huffman, zero new
+  dependencies, independently cross-checked against Python's `zlib`
+  during development) purely to give the existing size estimator a
+  real compressed-byte reference (37.2) — calibration against the
+  full fixture corpus found the estimator was already bit-exact, now
+  enforced as a permanent regression test rather than an assumption.
+  `search::golf_harder_deep` adds a deterministic, seeded
+  simulated-annealing search (37.1) with a pluggable
+  `SearchObjective` (raw bytes / DEFLATE bytes / Twigl `geekest`-mode
+  280-character tweet budget, 37.3), exposed as a "Deep" toggle next
+  to the "Golf harder" button. The Stats panel gained a "GOLF POWER"
+  section (37.4) with raw + DEFLATE-estimated reduction percentages
+  and a list of which passes fired this run. `wgl_equivalence_test.cpp`
+  now runs the real search on representative fixtures and renders
+  whatever combination it picks, confirming every explored combination
+  still passes the Phase 15 equivalence net (37.5). One pre-existing
+  performance issue was discovered but deliberately not fixed here
+  (documented in `ROADMAP.md` Phase 37.1): enabling frequency-aware
+  renaming can take roughly a second even on a small shader, due to a
+  full file re-render plus full DEFLATE re-estimate per 1–2-character
+  candidate name, for every renamable identifier.
+- `ROADMAP.md` Phase 36 (Inigo Quilez technique library) is now fully
+  implemented: a new `rust-core/src/iq.rs` module adds an SDF
+  primitive/operator compaction catalogue (`sdSphere`, `sdBox`,
+  `sdPlane`, `sdTorus`, `sdCapsule`, `opUnion`/`opSubtraction`/
+  `opIntersection`, polynomial `smin`/`smax`), a second hash/noise
+  one-liner lineage (`hash11`/`hash12`/`hash21`/`hash22`/`hash33` in
+  iq's fract-multiply-self style, distinct from Phase 35.2's Neyret
+  fract-sin lineage and twigl's `fsnoise`), a cosine-palette generator
+  (`palette(t,a,b,c,d)`) with 4 named coefficient presets, and a
+  tonemap/gamma one-liner catalogue (gamma-2.2 correction, an
+  ACES-approximation tonemap). All three of the Golf Tips panel's
+  catalogues (Neyret, iq, and Phase 33.1's identity substitutions) now
+  ship 31 entries total, and every entry gained a new "Insert" action
+  alongside the existing "Copy snippet" — inserting the snippet at the
+  editor caret, mirroring the Phase 34.4 Twigl snippet-insertion UX —
+  still never automatic, always an explicit per-entry click.
+- `ROADMAP.md` Phase 35.3/35.4 (Fabrice Neyret idiom library, final two
+  sub-phases) are now implemented, now that both of their prerequisites
+  have landed. `rust-core/src/neyret.rs` adds a raymarch-loop-compaction
+  idiom catalogue (`raymarch_loop_idioms()`/`RaymarchLoopIdiom`): two
+  "insane but correct" patterns — dropping a raymarch loop's early-exit
+  `break` since converged iterations contribute a negligible amount, and
+  replacing a fractal escape-counting `break` with a `step()`-gated
+  accumulator — each carrying a mandatory, non-empty `caveat` field
+  documenting precisely how it changes behavior, since (unlike every
+  other pass in this codebase) correctness here depends on numeric
+  tolerance, not an exact rewrite. All three Phase 35 catalogues
+  (rotation constants, hash/noise snippets, loop-compaction idioms) are
+  now surfaced in the "Golf Tips" panel as read-only cards with a
+  per-entry "Copy snippet" clipboard action — nothing is ever inserted
+  into `Source`/`Golfed` automatically.
+- `golf.md` Phase 32.1 ("Golf harder", compression-aware pass-order
+  search) is now implemented: a new `rust-core/src/search.rs` module
+  runs a bounded, deterministic local hill-climb over the Phase 29–31
+  pass toggles (`frequency_aware_renaming`, `factor_repeated_vector_args`,
+  `fuse_statement_sequences`, `aggressive_inlining`, `macro_cse`,
+  `hoist_declarations`, `loop_header_golf`, `loop_form_golf`, plus the
+  4-way `swizzle_alphabet` choice), capped at a fixed 2-round budget
+  over the fixed candidate list — never combinatorial, never
+  randomized — and scores every candidate against the active budget
+  metric (raw character count or the Phase 12 DEFLATE estimate). A new
+  "Golf harder" secondary button sits next to "Run golf" in the
+  inspector; when it finds a strictly smaller combination it stages
+  the result as a diff on the Diff tab with an "Apply harder result"
+  button rather than replacing the golfed output silently. Exposed
+  through the Rust FFI as `ushader_golf_harder` (new fields
+  `fuse_statement_sequences`, `frequency_aware_renaming`,
+  `factor_repeated_vector_args`, `swizzle_alphabet`, `aggressive_inlining`,
+  `macro_cse`, `hoist_declarations` added to `UshaderGolfOptions`,
+  fixing a latent ABI mismatch between the Rust struct and the
+  checked-in `golf_core.h` header where the Phase 29/30 toggles were
+  silently unreachable from the C++ UI). Rust unit tests cover: never
+  regresses versus the fixed default pass order, deterministic across
+  repeated runs, respects the protected-names list, and reproduces its
+  own output when the converged options are replayed directly.
+- `golf.md` Phase 32.2: documented, next to the Phase 12 budget section
+  in `golf.md`, that the DEFLATE estimator (and therefore "Golf
+  harder") targets plain DEFLATE, not a Crinkler-class context-modelling
+  compressor — a known, accepted, non-blocking limitation, not a
+  defect in this document's scope.
+- `golf.md` Phase 33.1: a new read-only "Golf Tips" tab
+  (`src/ui/golf_tips_panel.h/.cpp`) with a searchable catalogue of
+  manual golfing idioms — short rotation-matrix constants for common
+  angles, cheap trigonometric/geometric identity substitutions, and
+  compact `fract(sin(...))`-family hash/noise one-liners — each entry
+  citing its source catalogue. Nothing is ever inserted into the
+  editor automatically; every entry offers only a "Copy snippet"
+  clipboard action, and a persistent footer states that applying any
+  entry is the user's manual choice and changes shader output.
+- `golf.md` Phase 33.2: the "Explain Golf" trace view now surfaces a
+  non-modal banner ("N bytes over budget — see Golf Tips for manual
+  techniques") whenever the golfed output exceeds the active budget
+  preset, clicking through straight to the new Golf Tips tab.
+- `golf.md` Phase 33.4: an optional, dev-only, offline
+  `scripts/benchmark_vs_shader_minifier.py` script that compares
+  µShader's golfed output size against a contributor's own,
+  separately-installed copy of Shader Minifier across the
+  `fixtures/*.glsl` corpus. Never built into `ushader.exe`, never run
+  by CI, never fetches anything over the network — informational only.
 
 - `golf.md` Phase 31.1 (`for`-loop header golfing) is now implemented:
   a new `rust-core/src/loop_golf.rs` module folds the common

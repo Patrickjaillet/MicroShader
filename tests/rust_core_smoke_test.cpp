@@ -79,6 +79,68 @@ int main()
         failures += 1;
     }
 
+    {
+        const char* harder_source =
+            "float f(vec2 p){return dot(p,p)+dot(p,p)+dot(p,p);}"
+            "void mainImage(out vec4 fragColor,in vec2 fragCoord){fragColor=vec4(f(fragCoord));}";
+        UshaderGolfStats harder_stats{};
+        bool improved = false;
+        char* applied_json = nullptr;
+        char* harder_golfed = ushader_golf_harder(harder_source, all, nullptr, false, &harder_stats, &improved, &applied_json);
+        if (harder_golfed == nullptr)
+        {
+            std::fprintf(stderr, "golf harder: ushader_golf_harder returned null\n");
+            failures += 1;
+        }
+        else if (harder_stats.output_chars != std::strlen(harder_golfed))
+        {
+            std::fprintf(stderr, "golf harder: stats.output_chars (%zu) does not match golfed length (%zu)\n", harder_stats.output_chars, std::strlen(harder_golfed));
+            failures += 1;
+        }
+        else if (applied_json == nullptr || applied_json[0] != '[')
+        {
+            std::fprintf(stderr, "golf harder: expected a JSON array in out_applied_json\n");
+            failures += 1;
+        }
+        else
+        {
+            std::printf("golf harder: ok (%s) [improved=%d applied=%s]\n", harder_golfed, improved ? 1 : 0, applied_json);
+        }
+        if (harder_golfed != nullptr) { ushader_free_string(harder_golfed); }
+        if (applied_json != nullptr) { ushader_free_string(applied_json); }
+    }
+
+    {
+        const char* deep_source =
+            "float f(vec2 p){return dot(p,p)+dot(p,p)+dot(p,p);}"
+            "void mainImage(out vec4 fragColor,in vec2 fragCoord){fragColor=vec4(f(fragCoord));}";
+        UshaderGolfStats deep_stats{};
+        bool improved = false;
+        char* applied_json = nullptr;
+        char* deep_golfed = ushader_golf_harder_deep(deep_source, all, nullptr, 1, 200, 2000, &deep_stats, &improved, &applied_json);
+        if (deep_golfed == nullptr)
+        {
+            std::fprintf(stderr, "golf harder deep: ushader_golf_harder_deep returned null\n");
+            failures += 1;
+        }
+        else if (deep_stats.output_chars != std::strlen(deep_golfed))
+        {
+            std::fprintf(stderr, "golf harder deep: stats.output_chars (%zu) does not match golfed length (%zu)\n", deep_stats.output_chars, std::strlen(deep_golfed));
+            failures += 1;
+        }
+        else if (applied_json == nullptr || applied_json[0] != '[')
+        {
+            std::fprintf(stderr, "golf harder deep: expected a JSON array in out_applied_json\n");
+            failures += 1;
+        }
+        else
+        {
+            std::printf("golf harder deep: ok (%s) [improved=%d applied=%s]\n", deep_golfed, improved ? 1 : 0, applied_json);
+        }
+        if (deep_golfed != nullptr) { ushader_free_string(deep_golfed); }
+        if (applied_json != nullptr) { ushader_free_string(applied_json); }
+    }
+
     if (failures == 0)
     {
         std::printf("all checks passed\n");

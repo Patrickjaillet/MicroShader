@@ -30,6 +30,17 @@ struct GolfPassToggles
     // Phase 29.2 — SwizzleAlphabetChoice below (kept in sync with
     // rust-core's `SwizzleAlphabet`: Auto = 0, Xyzw = 1, Rgba = 2, Stpq = 3).
     int swizzle_alphabet = 0;
+    // Phase 30.1 — off by default even in "Maximum": the one pass in
+    // golf.md this whole document that can legitimately make output
+    // larger if mis-tuned, so it stays an explicit opt-in even for
+    // competitive users (see golf.md Phase 30.1's own stated rationale).
+    bool aggressive_inlining = false;
+    // Phase 30.2 — on by default, same stability-only exclusion from the
+    // shared Rust `all()` helper as `fuse_statement_sequences` above (not
+    // a correctness/size-risk exclusion like `aggressive_inlining`).
+    bool macro_cse = true;
+    // Phase 30.4 — on by default, same rationale as `macro_cse` above.
+    bool hoist_declarations = true;
 };
 
 // Mirrors rust-core's `SwizzleAlphabet` (golf.md Phase 29.2) for use by
