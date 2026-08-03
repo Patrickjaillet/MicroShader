@@ -2,7 +2,7 @@
 
 **µShader**
 Copyright © 2026 Patrick JAILLET — All rights reserved
-Email: contact.shaderstudio@gmail.com
+Email: sandefjord.development@proton.me
 Website: https://patrickjaillet.github.io/sandefjord-software
 License: MIT (see LICENSE)
 

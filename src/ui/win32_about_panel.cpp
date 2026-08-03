@@ -23,7 +23,7 @@ namespace
     };
 
     const LinkEntry kLinks[] = {
-        { L"contact.shaderstudio@gmail.com", L"mailto:contact.shaderstudio@gmail.com" },
+        { L"sandefjord.development@proton.me", L"mailto:sandefjord.development@proton.me" },
         { L"https://github.com/Patrickjaillet", L"https://github.com/Patrickjaillet" },
         { L"https://github.com/Patrickjaillet/MicroShader", L"https://github.com/Patrickjaillet/MicroShader" },
     };

@@ -31,6 +31,12 @@ public:
 
     bool take_pending_snippet_insert(std::string& out_source);
 
+    // ROADMAP.md Phase 38.3 -- read by the "Copy as twigl (mode: ...)"
+    // export preset action so it matches whatever mode is currently
+    // selected in this panel's segmented control.
+    int32_t current_mode() const { return mode; }
+    bool current_es300() const { return es300; }
+
 private:
     static constexpr int kModeCount = 4;
     static constexpr int kSnippetCount = 10;

@@ -218,11 +218,13 @@ std::string serialize_workspace(const WorkspaceState& state)
         {
             doc_json = profile.substr(0, brace + 1)
                 + "\n    \"path\": \"" + json_escape(doc.file_path) + "\","
+                + "\n    \"unsaved_source\": \"" + json_escape(doc.unsaved_source) + "\","
                 + profile.substr(brace + 1);
         }
         else
         {
-            doc_json = "{ \"path\": \"" + json_escape(doc.file_path) + "\" }";
+            doc_json = "{ \"path\": \"" + json_escape(doc.file_path) + "\", \"unsaved_source\": \""
+                + json_escape(doc.unsaved_source) + "\" }";
         }
         doc_json = trim_trailing_whitespace(doc_json);
         out += i == 0 ? "\n" : ",\n";
@@ -312,6 +314,7 @@ bool deserialize_workspace(const std::string& text, WorkspaceState& state)
                 WorkspaceDocument doc;
                 deserialize_golf_profile(object, doc.pass_toggles, doc.protected_names, doc.budget_preset_index);
                 doc.file_path = parse_string_field(object, "path");
+                doc.unsaved_source = parse_string_field(object, "unsaved_source");
                 state.documents.push_back(doc);
                 obj_start = std::string::npos;
             }

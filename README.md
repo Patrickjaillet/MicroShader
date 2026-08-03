@@ -214,11 +214,11 @@ cmake -S . -B build -D CMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-To build the installer, install [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+To build the installer, install [Inno Setup 7](https://jrsoftware.org/isinfo.php)
 and run:
 
 ```bash
-& "C:\Program Files\Inno Setup 7\ISCC.exe" /DMyAppVersion=3.0.2.0 installer\ushader.iss
+& "C:\Program Files\Inno Setup 7\ISCC.exe" /DMyAppVersion=4.0.0.0 installer\ushader.iss
 ```
 
 ## License
@@ -231,6 +231,6 @@ third-party binaries; see
 
 **µShader**
 Copyright © 2026 SANDEFJORD DEVELOPMENT (Patrick JAILLET) — All rights reserved
-Email: contact.shaderstudio@gmail.com
+Email: sandefjord.development@proton.me
 Website: https://github.com/Patrickjaillet
 Repository: https://github.com/Patrickjaillet/MicroShader

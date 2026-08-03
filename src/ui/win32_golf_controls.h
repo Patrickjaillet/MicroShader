@@ -32,6 +32,13 @@ public:
     const std::string& protected_names() const { return protected_names_text; }
     int budget_preset_index() const { return budget_index; }
 
+    // ROADMAP.md Phase 38.2/38.5 -- setters used when switching the active
+    // document (each document carries its own golf profile) and when
+    // loading a saved `.ushaderprofile` or a built-in Safe/Maximum profile.
+    void set_toggles(const GolfPassToggles& value) { golf_toggles = value; }
+    void set_protected_names(const std::string& value) { protected_names_text = value; }
+    void set_budget_preset_index(int value) { budget_index = value; }
+
 private:
     struct CheckboxRow
     {

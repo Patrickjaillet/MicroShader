@@ -6,6 +6,7 @@ endif()
 
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" USHADER_VERSION_RAW LIMIT_COUNT 1)
 string(STRIP "${USHADER_VERSION_RAW}" USHADER_VERSION_RAW)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
 
 project(ushader VERSION ${USHADER_VERSION_RAW} LANGUAGES CXX RC)
 
@@ -182,6 +183,7 @@ add_executable(ushader
     src/ui/win32_theme_brushes.cpp
     src/ui/win32_title_bar.cpp
     src/ui/win32_tab_strip.cpp
+    src/ui/win32_document_tab_strip.cpp
     src/ui/win32_icon_set.cpp
     src/ui/win32_status_dot.cpp
     src/ui/win32_animation.cpp
@@ -209,6 +211,11 @@ add_executable(ushader
     src/ui/keybindings_storage.cpp
     src/ui/win32_keybindings.cpp
     src/ui/recent_files.cpp
+    src/ui/workspace.cpp
+    src/ui/golf_profile.cpp
+    src/ui/export_wrappers.cpp
+    src/ui/exclude_list_import.cpp
+    src/report/report_encoding.cpp
     src/platform/paths.cpp
     src/platform/file_dialog.cpp
     assets/icons/app.rc

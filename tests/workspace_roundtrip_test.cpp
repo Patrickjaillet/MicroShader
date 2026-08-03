@@ -60,6 +60,13 @@ int main()
     second.pass_toggles.aggressive = false;
     original.documents.push_back(second);
 
+    WorkspaceDocument third;
+    third.file_path = "";
+    third.unsaved_source = "void mainImage(out vec4 fragColor,in vec2 fragCoord)\n{\n    fragColor=vec4(1.0);\n}\n";
+    third.protected_names = "mainImage";
+    third.budget_preset_index = -1;
+    original.documents.push_back(third);
+
     std::string serialized = serialize_workspace(original);
 
     WorkspaceState parsed;
@@ -75,6 +82,7 @@ int main()
             check(parsed.documents[i].file_path == original.documents[i].file_path, "file_path mismatch");
             check(parsed.documents[i].protected_names == original.documents[i].protected_names, "protected_names mismatch");
             check(parsed.documents[i].budget_preset_index == original.documents[i].budget_preset_index, "budget_preset_index mismatch");
+            check(parsed.documents[i].unsaved_source == original.documents[i].unsaved_source, "unsaved_source mismatch");
             check(toggles_equal(parsed.documents[i].pass_toggles, original.documents[i].pass_toggles), "pass_toggles mismatch");
         }
     }

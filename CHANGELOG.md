@@ -4,6 +4,100 @@ All notable changes to µShader are documented in this file.
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-08-03
+
+A `MAJOR` release: Phase 34 (twigl.app export parity) and Phase 38
+(UI overhaul with multi-document editing) are both externally visible,
+workflow-changing additions, not internal refinements — per the
+versioning rationale in `ROADMAP.md` section 3.
+
+### Fixed
+
+- `CMakeLists.txt` did not declare the `VERSION` file as a configure
+  dependency, so bumping it alone (as opposed to touching
+  `CMakeLists.txt` itself) left the generated `version.h` stale until
+  a manual reconfigure. Added
+  `set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ...)`
+  so the version truly auto-serializes on every build, closing a gap
+  in the automatic-versioning guarantee that Phase 40.2 had verified
+  the *output* of but not this specific trigger path.
+
+### Verified
+
+- `ROADMAP.md` Phase 41 (release checklist and delivery ordering) is
+  now fully implemented as an audit pass: every standing convention in
+  section 2 was rechecked against the current repository state
+  (English-only source, no comments, Windows 10/11 targeting, MIT
+  license, required GitHub files, icons, `docs/logo.png`, About-tab
+  copyright/contact info, Offline-First Isolation) and confirmed true.
+  All of Phases 29-41 are confirmed closed. Also documented, honestly,
+  that Phase 39/40's audits ran as one dedicated pass after Phase 38
+  rather than continuously alongside every prior phase as originally
+  planned — the substance of 39/40 is satisfied, but that specific
+  process discipline is adopted going forward rather than
+  retrofitted.
+
+### Audited
+
+- `ROADMAP.md` Phase 40 (offline-first audit and repository sync) is
+  now fully implemented. Grepped every file touched by Phases 35-39
+  for network/fetch APIs and found none — the shipped `ushader.exe`
+  makes zero network calls at run time; the only match anywhere is a
+  citation URL inside `benchmark_vs_shader_minifier.py`'s docstring
+  (naming a tool it optionally compares against offline, never fetched
+  automatically). `CMakeLists.txt`'s pre-existing `FetchContent` of
+  `stb` at CMake configure time is noted as an out-of-scope,
+  build-machine-only concern, not a runtime violation. Verified the
+  `VERSION` -> `cmake/version.h.in` -> generated `version.h`
+  auto-serialization pipeline still produces a correct
+  `USHADER_VERSION_STRING` (currently `3.1.0.30`) and will handle the
+  eventual `v4.0.0` bump. Confirmed `/ROADMAP.md` is already
+  `.gitignore`d and untracked (done in an earlier turn). Documented
+  the "one phase, one commit, one push" discipline as a going-forward
+  convention; not applied retroactively to the batched `v3.1.0`
+  release, and not exercised in this turn since committing/pushing
+  only happens when explicitly requested.
+
+### Changed
+
+- `ROADMAP.md` Phase 39 (branding, licensing, and installer compliance)
+  is now fully implemented. The retired `contact.shaderstudio@gmail.com`
+  address is replaced with `sandefjord.development@proton.me` in the
+  About tab, `README.md`, and `golf.md`. `docs/screenshot.png` is
+  recaptured from a live, running build to reflect Phase 38's new
+  document tab strip and Author/Analyze/Export/Settings tab grouping.
+  `LICENSE` and `THIRD_PARTY_NOTICES.md` were audited and need no
+  changes; the app/installer icons stay as-is since no brand asset
+  changed.
+
+### Added
+
+- `ROADMAP.md` Phase 38 ("remaniement", UI overhaul) is now fully
+  implemented. The tab strip is reorganized into Author (Source/
+  Golfed/Diff/Viewport), Analyze (Trace/Stats/Golf Tips), Export
+  (Twigl), and Settings (Appearance/About) groups with a visible
+  divider between each. A new always-visible document tab strip
+  (`Win32DocumentTabStrip`) restores multi-document editing: each
+  document tracks its own source text and golf profile independently,
+  and the whole session (every open document, file-backed or not) is
+  saved to `%APPDATA%\ushader\last_session.ushaderworkspace` on exit
+  and restored on next launch, reusing session-serialization machinery
+  that existed since the ImGui era but had never been wired into the
+  Win32 shell. The command palette gains one-click export presets
+  (Copy as Shadertoy/Bonzomatic/bare `main()`/twigl), `.ushaderprofile`
+  save/load plus a built-in Safe/Maximum/None profile picker,
+  exclude-name-list import, a PNG viewport screenshot action, and a
+  self-contained HTML session report — all backed by engines that
+  already existed in the codebase (`export_wrappers.cpp`,
+  `golf_profile.cpp`, `exclude_list_import.cpp`, `screenshot.cpp`,
+  `report_encoding.cpp`) but were never reachable from the Win32 shell
+  until now. GIF recording is explicitly not included (would need a
+  hand-written GIF89a/LZW encoder, out of proportion for this phase);
+  the exclude-list import stayed command-palette-only rather than
+  gaining a new always-visible inspector button, since the inspector's
+  Direct2D layout is already dense and unverifiable visually in this
+  environment. Both deviations are documented in `ROADMAP.md`.
+
 ## [3.1.0] - 2026-08-03
 
 ### Fixed

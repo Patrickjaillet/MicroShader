@@ -13,8 +13,45 @@
 
 namespace
 {
-    const wchar_t* kTabLabels[] = { L"Source", L"Golfed", L"Diff", L"Trace", L"Stats", L"Viewport", L"Appearance", L"About", L"Twigl", L"Golf Tips" };
-    const char* kTabNames[] = { "Source", "Golfed", "Diff", "Trace", "Stats", "Viewport", "Appearance", "About", "Twigl", "Golf Tips" };
+    // ROADMAP.md Phase 38.1 -- workspace restructure: tabs are ordered into
+    // three semantic groups (Author / Analyze / Export) plus a Settings
+    // catch-all for the two tabs that don't fit any of the three named
+    // groups, with a visible separator drawn before each new group's first
+    // tab (see kGroupBoundaries below). Every `kXxxTabIndex` constant in
+    // main_win32.cpp was renumbered to match this order.
+    const wchar_t* kTabLabels[] = { L"Source", L"Golfed", L"Diff", L"Viewport", L"Trace", L"Stats", L"Golf Tips", L"Twigl", L"Appearance", L"About" };
+    const char* kTabNames[] = { "Source", "Golfed", "Diff", "Viewport", "Trace", "Stats", "Golf Tips", "Twigl", "Appearance", "About" };
+
+    // Tab indices that start a new group (Author=0, Analyze=4, Export=7,
+    // Settings=8): a wider gap and a divider line are drawn immediately
+    // before each of these.
+    const int kGroupBoundaries[] = { 4, 7, 8 };
+    constexpr float kGroupGap = 14.0f;
+
+    bool starts_new_group(int index)
+    {
+        for (int boundary : kGroupBoundaries)
+        {
+            if (index == boundary)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    float group_gap_before(int index)
+    {
+        float gap = 0.0f;
+        for (int boundary : kGroupBoundaries)
+        {
+            if (index >= boundary)
+            {
+                gap += kGroupGap;
+            }
+        }
+        return gap;
+    }
 }
 
 bool TabStrip::create(ID2D1RenderTarget* render_target, IDWriteFactory* dwrite_factory)
@@ -77,12 +114,16 @@ int TabStrip::hit_test(int x, int y) const
     {
         return -1;
     }
-    int index = relative_x / static_cast<int>(kTabWidth);
-    if (index < 0 || index >= kTabCount)
+    for (int index = 0; index < kTabCount; ++index)
     {
-        return -1;
+        float tab_left = kTabWidth * static_cast<float>(index) + group_gap_before(index);
+        float tab_right = tab_left + kTabWidth;
+        if (static_cast<float>(relative_x) >= tab_left && static_cast<float>(relative_x) < tab_right)
+        {
+            return index;
+        }
     }
-    return index;
+    return -1;
 }
 
 void TabStrip::set_hover(int index)
@@ -126,9 +167,10 @@ void TabStrip::tick()
 
 void TabStrip::paint(ID2D1RenderTarget* render_target, const ThemeBrushes& brushes) const
 {
+    float total_width = kTabWidth * static_cast<float>(kTabCount) + group_gap_before(kTabCount - 1) + kGroupGap;
     D2D1_RECT_F strip_rect = D2D1::RectF(
         static_cast<float>(left), static_cast<float>(top),
-        static_cast<float>(left) + kTabWidth * static_cast<float>(kTabCount), static_cast<float>(top) + kHeight);
+        static_cast<float>(left) + total_width, static_cast<float>(top) + kHeight);
     render_target->FillRectangle(strip_rect, brushes.bg_app);
 
     float open_r, open_g, open_b, open_alpha;
@@ -138,7 +180,17 @@ void TabStrip::paint(ID2D1RenderTarget* render_target, const ThemeBrushes& brush
 
     for (int index = 0; index < kTabCount; ++index)
     {
-        float tab_left = static_cast<float>(left) + kTabWidth * static_cast<float>(index) + slide_offset;
+        float tab_left = static_cast<float>(left) + kTabWidth * static_cast<float>(index) + group_gap_before(index) + slide_offset;
+
+        if (starts_new_group(index) && dynamic_brush != nullptr)
+        {
+            float divider_x = tab_left - kGroupGap * 0.5f;
+            dynamic_brush->SetColor(D2D1::ColorF(tokens::border_subtle.x, tokens::border_subtle.y, tokens::border_subtle.z));
+            D2D1_RECT_F divider_rect = D2D1::RectF(divider_x - 0.5f, static_cast<float>(top) + 6.0f,
+                divider_x + 0.5f, static_cast<float>(top) + kHeight - 6.0f);
+            render_target->FillRectangle(divider_rect, dynamic_brush);
+        }
+
         D2D1_RECT_F tab_rect = D2D1::RectF(tab_left + 2.0f, static_cast<float>(top) + 2.0f,
             tab_left + kTabWidth - 2.0f, static_cast<float>(top) + kHeight - 2.0f);
         D2D1_ROUNDED_RECT rounded_rect = D2D1::RoundedRect(tab_rect, kCornerRadius, kCornerRadius);
