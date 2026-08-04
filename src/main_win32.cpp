@@ -2213,7 +2213,7 @@ int main()
         layout_chrome(hwnd);
     }
 
-    ShowWindow(hwnd, SW_SHOW);
+    ShowWindow(hwnd, SW_SHOWMAXIMIZED);
     UpdateWindow(hwnd);
 
     auto start_time = std::chrono::steady_clock::now();
