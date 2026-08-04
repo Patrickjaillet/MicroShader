@@ -5,6 +5,16 @@ application.
 
 ## [Unreleased]
 
+## [4.1.1] - 2026-08-04
+
+### Fixed
+
+- The rotation-constant entries in the **Golf Tips** tab and the
+  "over budget" hint banner showed garbled characters instead of
+  degree signs and dashes.
+- The application now launches maximized, instead of at a small
+  default window size.
+
 ## [4.1.0] - 2026-08-04
 
 ### Added
