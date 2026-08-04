@@ -31,19 +31,19 @@ namespace
     // (Phase 35 catalogue slice), reference survey section 3 above.
     const GolfTipEntry kEntries[] = {
         { L"Rotation constant", L"Fabrice Neyret's catalogue",
-          L"30° rotation matrix",
+          L"30\u00B0 rotation matrix",
           L"mat2(cos(a),sin(a),-sin(a),cos(a)) for a fixed 30-degree angle, as a clean 2-digit literal instead of a runtime cos()/sin() call.",
           "mat2(.87,.5,-.5,.87)" },
         { L"Rotation constant", L"Fabrice Neyret's catalogue",
-          L"36.87° rotation matrix (3-4-5 triangle, exact)",
+          L"36.87\u00B0 rotation matrix (3-4-5 triangle, exact)",
           L"The 3-4-5 triangle angle: .8/.6 satisfy sin^2+cos^2=1 exactly, so this one is not an approximation at all.",
           "mat2(.8,.6,-.6,.8)" },
         { L"Rotation constant", L"Fabrice Neyret's catalogue",
-          L"45° rotation matrix",
+          L"45\u00B0 rotation matrix",
           L"mat2(cos(a),sin(a),-sin(a),cos(a)) for a fixed 45-degree angle.",
           "mat2(.71,.71,-.71,.71)" },
         { L"Rotation constant", L"Fabrice Neyret's catalogue",
-          L"60° rotation matrix",
+          L"60\u00B0 rotation matrix",
           L"mat2(cos(a),sin(a),-sin(a),cos(a)) for a fixed 60-degree angle.",
           "mat2(.5,.87,-.87,.5)" },
         { L"Identity substitution", L"Xor's Mini: Code Golfing",
@@ -473,7 +473,7 @@ void Win32GolfTipsPanel::paint(ID2D1RenderTarget* render_target, const ThemeBrus
         dynamic_brush->SetColor(D2D1::ColorF(tokens::border_subtle.x, tokens::border_subtle.y, tokens::border_subtle.z));
         render_target->DrawRectangle(row_bg, dynamic_brush, 1.0f);
 
-        std::wstring header_line = std::wstring(entry.title) + L"  —  " + entry.category + L" (" + entry.source_catalogue + L")";
+        std::wstring header_line = std::wstring(entry.title) + L"  --  " + entry.category + L" (" + entry.source_catalogue + L")";
         D2D1_RECT_F header_rect = D2D1::RectF(row_bg.left + 8.0f, row_bg.top + 4.0f,
             row_bg.right - kCopyButtonWidth - kInsertButtonWidth - 20.0f, row_bg.top + 22.0f);
         dynamic_brush->SetColor(D2D1::ColorF(tokens::text_primary.x, tokens::text_primary.y, tokens::text_primary.z));

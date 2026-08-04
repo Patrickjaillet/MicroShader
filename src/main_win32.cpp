@@ -446,7 +446,7 @@ namespace
                     static_cast<float>(main_width), static_cast<float>(content_top + 28));
                 g_render_target->FillRectangle(hint_rect, g_brushes.bg_panel_raised);
                 wchar_t hint_text[160];
-                swprintf_s(hint_text, L"%lld bytes over budget — see Golf Tips for manual techniques", g_over_budget_bytes);
+                swprintf_s(hint_text, L"%lld bytes over budget -- see Golf Tips for manual techniques", g_over_budget_bytes);
                 g_render_target->DrawText(hint_text, static_cast<UINT32>(wcslen(hint_text)),
                     g_hint_text_format, hint_rect, g_brushes.text_secondary);
                 accessibility_register("Golf Tips hint", AccessibleRole::Button,
