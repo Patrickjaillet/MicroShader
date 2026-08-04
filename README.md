@@ -72,7 +72,13 @@ tab strip, grouped into four sections:
 
 On every tab except Viewport, a panel on the right edge of the window
 holds the golfing controls (see [Golfing your
-shader](#golfing-your-shader)).
+shader](#golfing-your-shader)), and a column of three small, labeled,
+always-live previews — **Source**, **Golfed**, and **Twigl** — sits
+just to its left, so you can visually confirm all three still render
+the same image no matter which tab you're on. The Twigl preview stays
+blank whenever the current Twigl Export settings (ES 3.00 or MRT)
+produce a shader this desktop viewport can't run — that's a
+known WebGL2-only limitation of those two options, not a bug.
 
 ## Writing or opening a shader
 
@@ -255,17 +261,19 @@ Enter to run an entry, or click one with the mouse.
 | Shortcut | Action |
 |---|---|
 | `F5` | Run golf |
+| `Ctrl+N` | New document |
 | `Ctrl+O` | Open a shader |
 | `Ctrl+S` | Save |
 | `Ctrl+Shift+S` | Save As |
+| `Ctrl+W` | Close the current document |
 | `Ctrl+Shift+P` | Command palette |
 | `Ctrl+Shift+F` | Toggle Formatted view |
 | `Ctrl+Shift+C` | Toggle Compare mode |
 | `Ctrl+Alt+T` | Twigl Export tab |
 
-Every shortcut can be rebound from the **Appearance** tab; a
-malformed or missing configuration file automatically falls back to
-these defaults, so the app is never left without shortcuts.
+These are stored in `%APPDATA%\ushader\keybindings.json`; a malformed
+or missing file automatically falls back to the defaults above, so the
+app is never left without shortcuts.
 
 ## Recent files and session restore
 

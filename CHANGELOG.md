@@ -5,6 +5,20 @@ application.
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-08-04
+
+### Added
+
+- A third live preview, labeled **Twigl**, joins the existing
+  **Source** and **Golfed** ones next to the golfing controls: it
+  shows your shader rendered exactly as twigl.app would run it,
+  updating immediately as you change mode/ES 3.00/MRT/Backbuffer/
+  Sound in the Twigl Export tab. It stays blank whenever ES 3.00 or
+  MRT is enabled, since those produce WebGL2-only GLSL this desktop
+  viewport can't run (a known limitation, not a bug).
+- Each of the three previews now shows its own label ("Source",
+  "Golfed", "Twigl") above it, so it's always clear which is which.
+
 ## [4.1.2] - 2026-08-04
 
 ### Fixed
