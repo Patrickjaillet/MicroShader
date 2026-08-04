@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -16,11 +17,23 @@ struct WorkspaceDocument
     // file_path is non-empty, since that document's content is read back
     // from disk on session restore instead.
     std::string unsaved_source;
+    // ROADMAP.md/roadmap_twigl.md Phase 44.3 -- the Twigl Export panel's
+    // own per-document state, mirroring how pass_toggles/protected_names/
+    // budget_preset_index already round-trip per document. Defaults match
+    // Win32TwiglExportPanel's own field defaults (win32_twigl_export_panel.h)
+    // so a profile saved before this field existed restores to the same
+    // state the panel already started in.
+    int32_t twigl_mode = 0;
+    bool twigl_es300 = false;
+    uint8_t twigl_mrt_targets = 1;
+    bool twigl_has_backbuffer = false;
+    bool twigl_has_sound = false;
 };
 
 struct WorkspaceState
 {
     int active_tab = 0;
+    int active_document = 0;
     std::string layout_ini;
     std::vector<WorkspaceDocument> documents;
     float ui_font_size = 18.0f;

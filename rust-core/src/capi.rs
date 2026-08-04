@@ -1,12 +1,13 @@
 use crate::budget::{estimate_budget, estimate_twigl_geekest_budget};
+use crate::gif::{encode_gif, GifFrame};
 use crate::golfer::{
     golf_with_protected_names, golf_with_protected_names_traced, AggressiveOptions, GolferTrace,
     GolfStats,
 };
 use crate::search::{golf_harder, golf_harder_deep, AppliedChange, SearchObjective};
 use crate::twigl::{
-    rewrite_twigl_shader, rewrite_twigl_shader_mrt, twigl_export_uniform_names, twigl_snippet,
-    twigl_snippets, TwiglMode,
+    rewrite_twigl_shader, rewrite_twigl_shader_full, rewrite_twigl_shader_mrt,
+    twigl_export_uniform_names, twigl_snippet, twigl_snippets, unrewrite_twigl_shader, TwiglMode,
 };
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
@@ -203,6 +204,79 @@ pub extern "C" fn ushader_free_string(s: *mut c_char) {
     }
     unsafe {
         drop(CString::from_raw(s));
+    }
+}
+
+// ROADMAP.md/roadmap_twigl.md Phase 45.1 -- binary (non-string) output, so
+// this uses a small owned-buffer struct instead of the *mut c_char
+// convention every other FFI function in this file uses. Always call
+// ushader_free_byte_buffer on the result, even when `data` is null
+// (`len` will be 0 in that case, and freeing is then a safe no-op) --
+// keeps the calling convention uniform regardless of success/failure.
+#[repr(C)]
+pub struct UshaderByteBuffer {
+    pub data: *mut u8,
+    pub len: usize,
+}
+
+impl UshaderByteBuffer {
+    fn empty() -> Self {
+        UshaderByteBuffer { data: std::ptr::null_mut(), len: 0 }
+    }
+}
+
+// `frames_rgba` is an array of `frame_count` pointers, each pointing to a
+// `width * height * 4` byte RGBA8 buffer (row-major, top-to-bottom) --
+// i.e. exactly what a `glReadPixels(..., GL_RGBA, GL_UNSIGNED_BYTE, ...)`
+// call already produces per frame, so the caller can pass its existing
+// per-frame pixel-read buffers directly with no reformatting. Returns an
+// empty buffer (`data == null`, `len == 0`) if `frames_rgba` is null, any
+// contained pointer is null, or the underlying `encode_gif` call fails
+// (empty frame list, zero width/height, or a length mismatch it cannot
+// detect from raw pointers alone -- the caller is trusted to pass buffers
+// of the declared size, same trust boundary every other raw-pointer FFI
+// function in this file already relies on).
+#[no_mangle]
+pub extern "C" fn ushader_encode_gif(
+    frames_rgba: *const *const u8,
+    frame_count: usize,
+    width: u16,
+    height: u16,
+    delay_centiseconds: u16,
+) -> UshaderByteBuffer {
+    if frames_rgba.is_null() || frame_count == 0 || width == 0 || height == 0 {
+        return UshaderByteBuffer::empty();
+    }
+    let frame_len = width as usize * height as usize * 4;
+    let frame_ptrs: &[*const u8] = unsafe { std::slice::from_raw_parts(frames_rgba, frame_count) };
+    if frame_ptrs.iter().any(|p| p.is_null()) {
+        return UshaderByteBuffer::empty();
+    }
+    let slices: Vec<&[u8]> = frame_ptrs
+        .iter()
+        .map(|&p| unsafe { std::slice::from_raw_parts(p, frame_len) })
+        .collect();
+    let frames: Vec<GifFrame> = slices.iter().map(|s| GifFrame { rgba: s }).collect();
+
+    match encode_gif(&frames, width, height, delay_centiseconds) {
+        Some(bytes) => {
+            let boxed = bytes.into_boxed_slice();
+            let len = boxed.len();
+            let data = Box::into_raw(boxed) as *mut u8;
+            UshaderByteBuffer { data, len }
+        }
+        None => UshaderByteBuffer::empty(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ushader_free_byte_buffer(buffer: UshaderByteBuffer) {
+    if buffer.data.is_null() {
+        return;
+    }
+    unsafe {
+        let slice = std::slice::from_raw_parts_mut(buffer.data, buffer.len);
+        drop(Box::from_raw(slice as *mut [u8]));
     }
 }
 
@@ -561,6 +635,61 @@ pub extern "C" fn ushader_twigl_rewrite_mrt(
         Err(_) => return std::ptr::null_mut(),
     };
     let rewritten = rewrite_twigl_shader_mrt(source, twigl_mode_from_code(mode), mrt_targets);
+    match CString::new(rewritten) {
+        Ok(c_string) => c_string.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+// The single combined entry point the C++ shell should call for every
+// twigl-related output -- the live Export-panel preview, the budget badge,
+// and the clipboard "Copy for twigl.app" action all call this so they can
+// never diverge again. See ROADMAP.md/roadmap_twigl.md Phase 42.3/42.4.
+#[no_mangle]
+pub extern "C" fn ushader_twigl_rewrite_full(
+    source: *const c_char,
+    mode: i32,
+    es300: bool,
+    mrt_targets: u8,
+    has_backbuffer: bool,
+    has_sound: bool,
+) -> *mut c_char {
+    if source.is_null() {
+        return std::ptr::null_mut();
+    }
+    let source = match unsafe { CStr::from_ptr(source) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let rewritten = rewrite_twigl_shader_full(
+        source,
+        twigl_mode_from_code(mode),
+        es300,
+        mrt_targets,
+        has_backbuffer,
+        has_sound,
+    );
+    match CString::new(rewritten) {
+        Ok(c_string) => c_string.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+// ROADMAP.md/roadmap_twigl.md Phase 43.2 -- the reverse of
+// ushader_twigl_rewrite: takes twigl-mode source (typed by hand, pasted from
+// twigl.app, or found in the wild) and reconstructs a Shadertoy-compatible
+// `void main(){}` fragment shader with standard iXxx uniform names, ready to
+// paste into the Source editor.
+#[no_mangle]
+pub extern "C" fn ushader_twigl_unrewrite(source: *const c_char, mode: i32) -> *mut c_char {
+    if source.is_null() {
+        return std::ptr::null_mut();
+    }
+    let source = match unsafe { CStr::from_ptr(source) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let rewritten = unrewrite_twigl_shader(source, twigl_mode_from_code(mode));
     match CString::new(rewritten) {
         Ok(c_string) => c_string.into_raw(),
         Err(_) => std::ptr::null_mut(),

@@ -50,7 +50,7 @@ void Win32StatsPanel::layout(int x, int y, int width, int height)
 
 void Win32StatsPanel::set_stats(const UshaderGolfStats& stats, std::size_t golfed_byte_size,
     const UshaderBudgetResult& budget, const UshaderBudgetResult& original_budget,
-    int budget_preset_index, bool has_stats_data)
+    int budget_preset_index, bool has_stats_data, bool frequency_aware_renaming_enabled)
 {
     last_stats = stats;
     last_golfed_bytes = golfed_byte_size;
@@ -58,6 +58,7 @@ void Win32StatsPanel::set_stats(const UshaderGolfStats& stats, std::size_t golfe
     last_original_budget = original_budget;
     last_preset_index = budget_preset_index;
     has_data = has_stats_data;
+    last_frequency_aware_renaming_enabled = frequency_aware_renaming_enabled;
 }
 
 void Win32StatsPanel::paint(ID2D1RenderTarget* render_target, const ThemeBrushes& brushes) const
@@ -225,7 +226,7 @@ void Win32StatsPanel::paint(ID2D1RenderTarget* render_target, const ThemeBrushes
         uintptr_t count;
     };
     const FiredPass fired_candidates[] = {
-        { "freq-aware renaming", last_stats.renamed_count },
+        { "freq-aware renaming", last_frequency_aware_renaming_enabled ? last_stats.renamed_count : 0 },
         { "vector args factored", last_stats.vector_args_factored },
         { "swizzles recolored", last_stats.swizzles_recolored },
         { "statement fusion", last_stats.statement_sequences_fused },

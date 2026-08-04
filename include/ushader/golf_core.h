@@ -122,6 +122,28 @@ char *ushader_golf(const char *source,
 
 void ushader_free_string(char *s);
 
+// ROADMAP.md/roadmap_twigl.md Phase 45.1 -- hand-written GIF89a encoder.
+// `frames_rgba` is an array of `frame_count` pointers, each pointing to a
+// `width * height * 4` byte RGBA8 buffer (row-major, top-to-bottom) --
+// e.g. straight from `glReadPixels(..., GL_RGBA, GL_UNSIGNED_BYTE, ...)`,
+// no reformatting needed. On failure (null input, zero dimensions, or an
+// internal encode error), `data` is null and `len` is 0. Always call
+// ushader_free_byte_buffer on the result, even on failure (freeing a
+// null/zero-length buffer is a safe no-op).
+typedef struct UshaderByteBuffer
+{
+    uint8_t *data;
+    size_t len;
+} UshaderByteBuffer;
+
+UshaderByteBuffer ushader_encode_gif(const uint8_t *const *frames_rgba,
+                                      size_t frame_count,
+                                      uint16_t width,
+                                      uint16_t height,
+                                      uint16_t delay_centiseconds);
+
+void ushader_free_byte_buffer(UshaderByteBuffer buffer);
+
 UshaderBudgetResult ushader_estimate_budget(const char *golfed);
 
 char *ushader_golf_traced(const char *source,
@@ -163,6 +185,24 @@ char *ushader_golf_harder_deep(const char *source,
 char *ushader_twigl_rewrite(const char *source, int32_t mode, bool es300);
 
 char *ushader_twigl_rewrite_mrt(const char *source, int32_t mode, uint8_t mrt_targets);
+
+// Combined entry point: applies mode/es300/MRT rewriting AND actually
+// declares the backbuffer/sound uniforms when requested (unlike
+// ushader_twigl_rewrite/ushader_twigl_rewrite_mrt above, which ignore those
+// two toggles entirely). This is the one function the Export panel's live
+// preview and the "Copy for twigl.app" clipboard action should both call, so
+// the two can never diverge. See ROADMAP.md/roadmap_twigl.md Phase 42.3/42.4.
+char *ushader_twigl_rewrite_full(const char *source,
+                                  int32_t mode,
+                                  bool es300,
+                                  uint8_t mrt_targets,
+                                  bool has_backbuffer,
+                                  bool has_sound);
+
+// ROADMAP.md/roadmap_twigl.md Phase 43.2 -- reverse of ushader_twigl_rewrite:
+// reconstructs Shadertoy-compatible (iXxx uniform) source from twigl-mode
+// input, for the Export panel's "Import twigl shader" action.
+char *ushader_twigl_unrewrite(const char *source, int32_t mode);
 
 char *ushader_twigl_snippet(const char *name);
 

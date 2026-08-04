@@ -42,6 +42,20 @@ namespace
     }
 }
 
+std::string twigl_reserved_snippet_names_csv()
+{
+    std::string csv;
+    for (int i = 0; i < 10; ++i)
+    {
+        if (i > 0)
+        {
+            csv += ",";
+        }
+        csv += kSnippetNames[i];
+    }
+    return csv;
+}
+
 bool Win32TwiglExportPanel::create(ID2D1RenderTarget* render_target, IDWriteFactory* dwrite_factory)
 {
     for (Win32ToolButton& button : mode_buttons)
@@ -52,6 +66,8 @@ bool Win32TwiglExportPanel::create(ID2D1RenderTarget* render_target, IDWriteFact
     if (!mrt_button.create(render_target, dwrite_factory)) { return false; }
     if (!backbuffer_button.create(render_target, dwrite_factory)) { return false; }
     if (!sound_button.create(render_target, dwrite_factory)) { return false; }
+    if (!copy_button.create(render_target, dwrite_factory)) { return false; }
+    if (!import_button.create(render_target, dwrite_factory)) { return false; }
     for (Win32ToolButton& button : snippet_buttons)
     {
         if (!button.create(render_target, dwrite_factory)) { return false; }
@@ -81,6 +97,8 @@ void Win32TwiglExportPanel::destroy()
     mrt_button.destroy();
     backbuffer_button.destroy();
     sound_button.destroy();
+    copy_button.destroy();
+    import_button.destroy();
     for (Win32ToolButton& button : snippet_buttons) { button.destroy(); }
     preview_editor.destroy();
 
@@ -114,6 +132,13 @@ void Win32TwiglExportPanel::layout(int x, int y, int width, int height)
     backbuffer_button.layout(col_x, row_y, button_width, kButtonHeight);
     col_x += button_width + kButtonGap;
     sound_button.layout(col_x, row_y, button_width, kButtonHeight);
+
+    row_y += kButtonHeight + kRowGap;
+    col_x = x + kPanelPadding;
+    int wide_button_width = 150;
+    copy_button.layout(col_x, row_y, wide_button_width, kButtonHeight);
+    col_x += wide_button_width + kButtonGap;
+    import_button.layout(col_x, row_y, wide_button_width, kButtonHeight);
 
     row_y += kButtonHeight + kRowGap;
     int snippet_col_x = x + kPanelPadding;
@@ -161,7 +186,20 @@ void Win32TwiglExportPanel::paint(ID2D1RenderTarget* render_target, const ThemeB
     backbuffer_button.paint(render_target, brushes, L"Backbuffer", has_backbuffer);
     register_toggle(backbuffer_button, "Twigl backbuffer uniform", has_backbuffer);
     sound_button.paint(render_target, brushes, L"Sound", has_sound);
-    register_toggle(sound_button, "Twigl sound uniform", has_sound);
+    // ROADMAP.md/roadmap_twigl.md Phase 43.4 -- the accessible label doubles
+    // as this toggle's only hint/tooltip: twigl.app's sound shader is a
+    // *separate* GLSL program from this one; enabling this toggle only
+    // declares the graphics shader's read side of the value that other
+    // program produces, it does not export a sound shader too.
+    register_toggle(sound_button,
+        "Twigl sound uniform -- read-only in this (graphics) shader; twigl.app's "
+        "separate Sound shader program is what actually produces the value",
+        has_sound);
+
+    copy_button.paint(render_target, brushes, L"Copy for twigl.app", false);
+    register_button(copy_button, "Copy current export for twigl.app");
+    import_button.paint(render_target, brushes, L"Import twigl shader", false);
+    register_button(import_button, "Import twigl shader into Source");
 
     for (int i = 0; i < kSnippetCount; ++i)
     {
@@ -235,11 +273,39 @@ bool Win32TwiglExportPanel::on_mouse_down(int client_x, int client_y)
     if (backbuffer_button.contains(client_x, client_y))
     {
         has_backbuffer = !has_backbuffer;
+        recompute_preview();
         return true;
     }
     if (sound_button.contains(client_x, client_y))
     {
         has_sound = !has_sound;
+        recompute_preview();
+        return true;
+    }
+    if (copy_button.contains(client_x, client_y))
+    {
+        // ROADMAP.md/roadmap_twigl.md Phase 43.1 -- just raises the flag;
+        // the actual clipboard write and toast happen in main_win32.cpp
+        // (the same poll-once pattern already used for snippet inserts
+        // below), since clipboard access lives there.
+        has_pending_copy_request = true;
+        return true;
+    }
+    if (import_button.contains(client_x, client_y))
+    {
+        // ROADMAP.md/roadmap_twigl.md Phase 43.2 -- reconstructs
+        // Shadertoy-style source from whatever is currently shown in this
+        // panel's own preview text (i.e. exactly what the user is looking
+        // at), not from golfed_source_cache, so "Import" always round-trips
+        // the text actually on screen.
+        std::string preview_text = preview_editor.text_utf8();
+        char* unrewritten = ushader_twigl_unrewrite(preview_text.c_str(), mode);
+        if (unrewritten != nullptr)
+        {
+            pending_import_source = std::string(unrewritten);
+            has_pending_import = true;
+            ushader_free_string(unrewritten);
+        }
         return true;
     }
     for (int i = 0; i < kSnippetCount; ++i)
@@ -285,17 +351,64 @@ bool Win32TwiglExportPanel::take_pending_snippet_insert(std::string& out_source)
     return true;
 }
 
-void Win32TwiglExportPanel::recompute_preview()
+bool Win32TwiglExportPanel::take_pending_import(std::string& out_source)
 {
-    char* rewritten = (mrt_targets == 2)
-        ? ushader_twigl_rewrite_mrt(golfed_source_cache.c_str(), mode, mrt_targets)
-        : ushader_twigl_rewrite(golfed_source_cache.c_str(), mode, es300);
+    if (!has_pending_import)
+    {
+        return false;
+    }
+    out_source = pending_import_source;
+    has_pending_import = false;
+    return true;
+}
 
-    std::string preview_text = rewritten != nullptr ? std::string(rewritten) : std::string();
+bool Win32TwiglExportPanel::take_pending_copy_request(std::string& out_text)
+{
+    if (!has_pending_copy_request)
+    {
+        return false;
+    }
+    out_text = compute_export_text(golfed_source_cache);
+    has_pending_copy_request = false;
+    return true;
+}
+
+std::string Win32TwiglExportPanel::preview_text_for_import() const
+{
+    return preview_editor.text_utf8();
+}
+
+void Win32TwiglExportPanel::restore_state(int32_t restored_mode, bool restored_es300,
+    uint8_t restored_mrt_targets, bool restored_has_backbuffer, bool restored_has_sound)
+{
+    // Defensive clamp -- a workspace file could in principle be hand-edited
+    // or come from a future schema version; fall back to safe defaults
+    // rather than propagate an out-of-range mode into kModeLabels/kModeNames
+    // indexing elsewhere in this file.
+    mode = (restored_mode >= 0 && restored_mode < kModeCount) ? restored_mode : 0;
+    es300 = restored_es300;
+    mrt_targets = (restored_mrt_targets == 2) ? 2 : 1;
+    has_backbuffer = restored_has_backbuffer;
+    has_sound = restored_has_sound;
+    recompute_preview();
+}
+
+std::string Win32TwiglExportPanel::compute_export_text(const std::string& golfed_source) const
+{
+    char* rewritten = ushader_twigl_rewrite_full(
+        golfed_source.c_str(), mode, es300, mrt_targets, has_backbuffer, has_sound);
+
+    std::string result = rewritten != nullptr ? std::string(rewritten) : std::string();
     if (rewritten != nullptr)
     {
         ushader_free_string(rewritten);
     }
+    return result;
+}
+
+void Win32TwiglExportPanel::recompute_preview()
+{
+    std::string preview_text = compute_export_text(golfed_source_cache);
 
     preview_editor.set_text_utf8(preview_text);
     last_budget = ushader_estimate_budget(preview_text.c_str());

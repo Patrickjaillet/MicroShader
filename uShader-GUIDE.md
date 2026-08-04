@@ -1,197 +1,179 @@
-# µShader — Contenu du zip & procédure Git / Build / Release
+# µShader — Git / Build / Release procedure
 
-## 1. Résumé du projet
+Internal maintainer reference. This is not the user manual — see
+`README.md` for that.
 
-**µShader** est une application native Windows 10/11 (SDL3 + OpenGL +
-Dear ImGui, façon Adobe Premiere Pro sombre avec fenêtre borderless) qui
-« golfe » (minifie) un fragment shader GLSL style Shadertoy (`mainImage`)
-et prévisualise le rendu en direct pour vérifier que le résultat golfé
-est visuellement identique à la source.
+## 1. Project summary
 
-- **Éditeur**, version dans `VERSION` : `2.0.1`
-- **Éditeur légal** : SANDEFJORD DEVELOPMENT (Patrick JAILLET)
-- **Dépôt GitHub** : https://github.com/Patrickjaillet/MicroShader
-- **Licence** : MIT (+ `ffmpeg.exe` sous GPL, embarqué en subprocess — voir `THIRD_PARTY_NOTICES.md`)
-- **Moteur de golfing** : cœur en Rust (`rust-core/`, via `cbindgen` → C API `capi.rs`), consommé par l'app C++ (`src/`)
-- **CLI batch** : binaire `golf` (rust-core), pour intégrer µShader dans un pipeline d'assets hors-ligne
+**µShader** is a native Windows 10/11 application (Win32 +
+Direct2D/DirectWrite/GDI+ chrome, WGL-hosted OpenGL viewport — no
+Dear ImGui, no SDL3) that "golfs" (minifies) a Shadertoy-style GLSL
+fragment shader (`mainImage`) and previews the result live to confirm
+it renders identically to the source.
 
-## 2. Arborescence complète du zip (156 fichiers)
+- **Current version**: see `VERSION` (single source of truth)
+- **Publisher**: SANDEFJORD DEVELOPMENT (Patrick JAILLET)
+- **Repository**: https://github.com/Patrickjaillet/MicroShader
+- **License**: MIT — no third-party binaries bundled (see
+  `THIRD_PARTY_NOTICES.md`)
+- **Golfing engine**: Rust core (`rust-core/`), exposed to the C++
+  shell through a generated C header (`include/ushader/golf_core.h`,
+  via `cbindgen`)
+- **Batch CLI**: the `golf` binary (`rust-core/src/bin/golf.rs`), for
+  embedding µShader in an offline asset pipeline
+
+## 2. Repository layout
 
 ```
-uShader.zip
+uShader/
 ├── .gitignore
-├── CHANGELOG.md               (dernière entrée : 2.0.1 — 2026-07-20)
-├── CLAUDE.md                  ⚠️ listé dans .gitignore → NE PAS committer
-├── CMakeLists.txt             build C++ (lit VERSION, génère cmake/version.h.in)
-├── LICENSE                    MIT
-├── README.md
-├── ROADMAP.md
+├── CHANGELOG.md
+├── CMakeLists.txt        C++ build (reads VERSION, generates cmake/version.h.in)
+├── LICENSE                MIT
+├── README.md              user manual
+├── ROADMAP.md             internal planning doc — gitignored, not published
 ├── THIRD_PARTY_NOTICES.md
-├── VERSION                    → "2.0.1"
-├── utf8_test.obj              ⚠️ artefact de build (.obj est dans .gitignore) — à supprimer avant commit
+├── VERSION                single source of truth, e.g. "4.0.0"
 │
 ├── assets/
-│   ├── fonts/                 Inter.ttf, lucide.ttf (+ licences)
-│   └── icons/                 app.ico, app.rc, app_source.png, installer.ico
+│   └── icons/             app.ico, app.rc, app_source.png, installer.ico, UI icon set
 │
 ├── cmake/
-│   └── version.h.in           template généré en USHADER_VERSION_* / USHADER_BUILD
+│   └── version.h.in       template generated into USHADER_VERSION_*/USHADER_BUILD
 │
 ├── docs/
-│   ├── design/                color-palette.svg, icon-states.svg, ui-mockup-full.svg
+│   ├── ushaderprofile.schema.json / ushaderprofile-schema.md
 │   ├── logo.png
-│   └── screenshot.png
+│   └── screenshot.png      README hero image — recapture on every visible UI change
 │
-├── fixtures/                  ~25 fichiers .glsl de régression pour chaque pass de golfing
-│                              + sample.ushaderprofile
+├── fixtures/               .glsl regression fixtures for the golfing engine
 │
 ├── include/ushader/
-│   └── golf_core.h            interface C exposée par rust-core
+│   └── golf_core.h          C ABI surface generated from rust-core
 │
 ├── installer/
-│   └── ushader.iss            script Inno Setup 6 (voir §5)
+│   └── ushader.iss           Inno Setup script
 │
-├── rust-core/                 moteur de minification (crate Rust)
+├── rust-core/                minification engine (Rust crate)
 │   ├── Cargo.toml / Cargo.lock / cbindgen.toml
-│   └── src/
-│       ├── lib.rs, capi.rs, lexer.rs, expr.rs, callgraph.rs,
-│       │   inline.rs, vocab.rs, budget.rs
-│       ├── golfer.rs, aggressive.rs   (passes de golfing)
-│       └── bin/golf.rs                (CLI batch)
+│   └── src/                  golfer.rs, aggressive.rs, twigl.rs, search.rs,
+│                              deflate.rs, gif.rs, and friends
+│       └── bin/golf.rs        batch CLI entry point
 │
-├── src/                       application C++ (SDL3 + OpenGL + ImGui)
-│   ├── main.cpp
-│   ├── platform/               file_dialog, paths, recorder, screenshot, stb_impl, utf8
-│   ├── render/                 framebuffer, gl_functions, shader_runner, texture, default_shader
-│   ├── report/                 report.cpp/.h, report_encoding (export HTML autonome)
-│   └── ui/                     ~20 fichiers : editor, thème, palette de commandes,
-│                                diff view, minimap, workspace multi-onglets,
-│                                golf_controls/profile/trace, keybindings, etc.
+├── src/                       C++ application (Win32 + Direct2D/DirectWrite/GDI+ + WGL)
+│   ├── main_win32.cpp
+│   ├── platform/               file dialogs, paths, screenshot/GIF capture, accessibility
+│   ├── render/                 framebuffer, GL function loading, shader runner
+│   ├── report/                 self-contained HTML session report
+│   └── ui/                     editor, panels, command palette, workspace, tab strip, ...
 │
-└── tests/
-    ├── golf_profile_roundtrip_test.cpp
-    ├── report_encoding_test.cpp
-    ├── rust_core_smoke_test.cpp
-    └── workspace_roundtrip_test.cpp
+└── tests/                      C++ test executables (ctest)
 ```
 
-## 3. Points d'attention avant de committer
+## 3. Before committing
 
-- **`CLAUDE.md` et `utf8_test.obj`** ne doivent pas être versionnés :
-  le premier est explicitement exclu par `.gitignore` (`/CLAUDE.md`),
-  le second correspond au motif `*.obj` déjà ignoré — c'est un résidu de
-  compilation qui traîne dans le zip, à supprimer avant `git add`.
-- `.gitignore` exclut déjà `/build/`, `/out/`, `/dist/`, `*.obj`, `*.pdb`,
-  `*.ilk`, `*.exe`, `*.dll`, `*.lib`, `.vs/`, `CMakeUserPresets.json`,
-  `/rust-core/target/`, `Cargo.lock`, `/ancien/`.
-  → **`Cargo.lock` étant ignoré**, ne pas forcer son ajout au commit.
-- La version applicative vient d'un seul endroit : le fichier **`VERSION`**
-  (actuellement `2.0.1`), lu par `CMakeLists.txt` pour peupler
-  `cmake/version.h.in` (`USHADER_VERSION_MAJOR/MINOR/PATCH`, `USHADER_BUILD`).
-  L'installeur Inno Setup (`installer/ushader.iss`), lui, prend sa version
-  en paramètre de ligne de commande (`/DMyAppVersion=...`), donc les deux
-  doivent être tenus synchronisés manuellement au moment du build.
+- `.gitignore` already excludes build output (`/build/`, `/out/`,
+  `/dist/`, `*.obj`, `*.pdb`, `*.exe`, `*.dll`, `*.lib`), `.vs/`,
+  `CMakeUserPresets.json`, `/rust-core/target/`, `Cargo.lock`,
+  `/CLAUDE.md`, `/ROADMAP.md`, and `/uShader.zip`. Don't force-add any
+  of these.
+- The application version comes from a single place: the **`VERSION`**
+  file, read by `CMakeLists.txt` to populate `cmake/version.h.in`
+  (`USHADER_VERSION_MAJOR/MINOR/PATCH`, `USHADER_BUILD`). The Inno
+  Setup installer takes its version as a command-line parameter
+  (`/DMyAppVersion=...`), so the two must be kept in sync by hand at
+  build time.
+- Before tagging a release, make sure `CHANGELOG.md` has an entry for
+  it and `README.md`'s screenshot (`docs/screenshot.png`) still
+  matches the current UI.
 
-## 4. Procédure Git — commit + push (VS Code / PowerShell)
-
-Ouvrir un terminal **PowerShell** dans VS Code (`` Ctrl+` ``), se placer à la
-racine du projet extrait, puis :
+## 4. Git — commit and push (PowerShell)
 
 ```powershell
-# 0) Nettoyage des fichiers qui ne doivent pas être committés
-Remove-Item .\utf8_test.obj -ErrorAction SilentlyContinue
-# CLAUDE.md est déjà ignoré par .gitignore : rien à faire, git ne le verra pas
-
-# 1) Initialiser le dépôt (uniquement si ce n'est pas déjà fait)
-git init
-git branch -M main
-git remote add origin https://github.com/Patrickjaillet/MicroShader.git
-
-# Si le remote existe déjà (dépôt déjà initialisé auparavant) :
-git remote set-url origin https://github.com/Patrickjaillet/MicroShader.git
-
-# 2) Vérifier ce que git va suivre (CLAUDE.md et *.obj ne doivent PAS apparaître)
 git status
-
-# 3) Ajouter et committer
-git add .
-git commit -m "uShader 2.0.1 : recent files + drag-and-drop (Phase 18/19)"
-
-# 4) Récupérer l'historique distant s'il existe déjà, puis pousser
-git pull origin main --rebase   # seulement si le repo distant n'est pas vide
+git add <files>
+git commit -m "uShader X.Y.Z: <summary>"
 git push -u origin main
 ```
 
-Pour une release taguée (recommandé, en cohérence avec `VERSION`) :
+For a tagged release (recommended, matching `VERSION`):
 
 ```powershell
-git tag -a v2.0.1 -m "uShader 2.0.1"
-git push origin v2.0.1
+git tag -a vX.Y.Z -m "uShader X.Y.Z"
+git push origin vX.Y.Z
 ```
 
-## 5. Build du logiciel (Release) — PowerShell
+## 5. Building the software (Release) — PowerShell
 
-Pré-requis : Visual Studio 2022 Build Tools (MSVC, C++20), CMake ≥ 3.21,
-toolchain Rust avec la cible `x86_64-pc-windows-msvc`, Inno Setup 6.
+Prerequisites: Visual Studio 2022 Build Tools (MSVC, C++20), CMake ≥
+3.21, a Rust toolchain with the `x86_64-pc-windows-msvc` target, and
+(for the installer) Inno Setup 7.
 
 ```powershell
-# Configuration + build C++ (mode Release)
+# Configure + build the C++ app in Release mode
+# (this also builds rust-core via Cargo as part of the CMake build)
 cmake -S . -B build -D CMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 
-# Build du binaire CLI Rust "golf" (optionnel, pipeline batch)
+# Optional: build the batch CLI binary separately
 cargo build --release --manifest-path rust-core\Cargo.toml --bin golf
 ```
 
-## 6. Génération de l'installeur (Inno Setup) — PowerShell
-
-Le numéro de version passé à Inno Setup doit correspondre au contenu de
-`VERSION` (format `X.Y.Z.Build`, ex. `2.0.1.0`) :
+Run the test suite with:
 
 ```powershell
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
-  /DMyAppVersion=2.0.1.0 `
+ctest --test-dir build -C Release
+```
+
+## 6. Building the installer (Inno Setup)
+
+The version passed to Inno Setup must match `VERSION` (format
+`X.Y.Z.Build`, e.g. `4.0.0.0`):
+
+```powershell
+& "C:\Program Files\Inno Setup 7\ISCC.exe" `
+  /DMyAppVersion=4.0.0.0 `
   installer\ushader.iss
 ```
 
-Cela produit `dist\uShader-Setup-2.0.1.0.exe` (voir `OutputDir=..\dist`
-et `OutputBaseFilename=uShader-Setup-{#MyAppVersion}` dans `ushader.iss`).
-L'installeur embarque `ushader.exe`, `ffmpeg.exe`, les polices, les
-assets de branding et `THIRD_PARTY_NOTICES.md`.
+This produces `dist\uShader-Setup-4.0.0.0.exe` (see `OutputDir` and
+`OutputBaseFilename` in `ushader.iss`). The installer bundles
+`ushader.exe`, the icon/UI asset set, and `THIRD_PARTY_NOTICES.md` —
+no third-party runtime or binary is bundled (see
+`THIRD_PARTY_NOTICES.md`).
 
-## 7. Publier la release avec l'installeur sur GitHub
+## 7. Publishing a release on GitHub
 
-Via l'interface GitHub, ou en ligne de commande avec le **GitHub CLI**
-(`gh`, à installer une fois : `winget install GitHub.cli`) :
+Via the GitHub web UI, or with the **GitHub CLI** (`gh`, install once
+with `winget install GitHub.cli`):
 
 ```powershell
-gh auth login    # une seule fois
+gh auth login    # once
 
-gh release create v2.0.1 `
-  ".\dist\uShader-Setup-2.0.1.0.exe" `
-  --title "uShader 2.0.1" `
+gh release create vX.Y.Z `
+  ".\dist\uShader-Setup-X.Y.Z.0.exe" `
+  --title "uShader X.Y.Z" `
   --notes-file CHANGELOG.md
 ```
 
-Cela crée le tag `v2.0.1` (s'il n'existe pas déjà côté distant), la
-release GitHub, et y attache l'installeur `.exe` en tant qu'asset
-téléchargeable — c'est exactement le fichier que le README pointe pour
-les utilisateurs finaux (page **Releases** du dépôt
-`Patrickjaillet/MicroShader`).
+This creates the `vX.Y.Z` tag (if it doesn't already exist remotely),
+the GitHub release, and attaches the installer `.exe` as a downloadable
+asset — the exact file `README.md` points end users to on the
+repository's **Releases** page.
 
-## 8. Récapitulatif en une seule séquence
+## 8. One-shot release sequence
 
 ```powershell
-Remove-Item .\utf8_test.obj -ErrorAction SilentlyContinue
-git add .
-git commit -m "uShader 2.0.1"
+git add <files>
+git commit -m "uShader X.Y.Z"
 git push -u origin main
-git tag -a v2.0.1 -m "uShader 2.0.1"
-git push origin v2.0.1
+git tag -a vX.Y.Z -m "uShader X.Y.Z"
+git push origin vX.Y.Z
 
 cmake -S . -B build -D CMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
-& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=2.0.1.0 installer\ushader.iss
+ctest --test-dir build -C Release
+& "C:\Program Files\Inno Setup 7\ISCC.exe" /DMyAppVersion=X.Y.Z.0 installer\ushader.iss
 
-gh release create v2.0.1 ".\dist\uShader-Setup-2.0.1.0.exe" --title "uShader 2.0.1" --notes-file CHANGELOG.md
+gh release create vX.Y.Z ".\dist\uShader-Setup-X.Y.Z.0.exe" --title "uShader X.Y.Z" --notes-file CHANGELOG.md
 ```

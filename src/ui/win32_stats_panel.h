@@ -22,9 +22,15 @@ public:
     // result's `budget` so the "Golf Power" section can show a genuine
     // DEFLATE-estimated reduction percentage, not just the raw-character
     // one `stats.reduction_pct` already covers.
+    // `frequency_aware_renaming_enabled` -- ROADMAP.md Phase 37.4's "Passes
+    // fired" line must not infer this pass from `stats.renamed_count`
+    // alone: that counter is nonzero for *any* renaming, including the
+    // always-on default renamer, so without the toggle's own state the
+    // dashboard would claim frequency-aware renaming fired even when it
+    // was switched off and ordinary renaming did the work instead.
     void set_stats(const UshaderGolfStats& stats, std::size_t golfed_byte_size,
         const UshaderBudgetResult& budget, const UshaderBudgetResult& original_budget,
-        int budget_preset_index, bool has_data);
+        int budget_preset_index, bool has_data, bool frequency_aware_renaming_enabled);
     void paint(ID2D1RenderTarget* render_target, const ThemeBrushes& brushes) const;
 
 private:
@@ -37,6 +43,7 @@ private:
     UshaderBudgetResult last_original_budget{};
     int last_preset_index = -1;
     bool has_data = false;
+    bool last_frequency_aware_renaming_enabled = false;
 
     int origin_x = 0;
     int origin_y = 0;

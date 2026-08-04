@@ -1,5 +1,6 @@
 #include "workspace.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <string>
 
@@ -198,6 +199,42 @@ namespace
         }
         return value;
     }
+
+    // ROADMAP.md/roadmap_twigl.md Phase 44.3 -- mirrors golf_profile.cpp's
+    // own find_bool_field: locates the key, then scans forward for the
+    // first "true"/"false" literal. An absent key (profile saved before
+    // this field existed) falls back to default_value, matching every
+    // other *_field helper in this file.
+    bool parse_bool_field(const std::string& text, const std::string& key, bool default_value)
+    {
+        std::string needle = "\"" + key + "\"";
+        std::size_t key_pos = text.find(needle);
+        if (key_pos == std::string::npos)
+        {
+            return default_value;
+        }
+        std::size_t colon_pos = text.find(':', key_pos + needle.size());
+        if (colon_pos == std::string::npos)
+        {
+            return default_value;
+        }
+        std::size_t true_pos = text.find("true", colon_pos);
+        std::size_t false_pos = text.find("false", colon_pos);
+        std::size_t comma_pos = text.find(',', colon_pos);
+        std::size_t brace_pos = text.find('}', colon_pos);
+        std::size_t field_end = std::min(
+            comma_pos == std::string::npos ? text.size() : comma_pos,
+            brace_pos == std::string::npos ? text.size() : brace_pos);
+        if (true_pos != std::string::npos && true_pos < field_end)
+        {
+            return true;
+        }
+        if (false_pos != std::string::npos && false_pos < field_end)
+        {
+            return false;
+        }
+        return default_value;
+    }
 }
 
 std::string serialize_workspace(const WorkspaceState& state)
@@ -205,6 +242,7 @@ std::string serialize_workspace(const WorkspaceState& state)
     std::string out = "{\n";
     out += "  \"version\": 1,\n";
     out += "  \"active_tab\": " + std::to_string(state.active_tab) + ",\n";
+    out += "  \"active_document\": " + std::to_string(state.active_document) + ",\n";
     out += "  \"ui_font_size\": " + std::to_string(state.ui_font_size) + ",\n";
     out += "  \"layout_ini\": \"" + json_escape(state.layout_ini) + "\",\n";
     out += "  \"documents\": [";
@@ -213,18 +251,24 @@ std::string serialize_workspace(const WorkspaceState& state)
         const WorkspaceDocument& doc = state.documents[i];
         std::string profile = serialize_golf_profile(doc.pass_toggles, doc.protected_names, doc.budget_preset_index);
         std::size_t brace = profile.find('{');
+        std::string twigl_fields = std::string("\n    \"twigl_mode\": ") + std::to_string(doc.twigl_mode) + ","
+            + "\n    \"twigl_es300\": " + (doc.twigl_es300 ? "true" : "false") + ","
+            + "\n    \"twigl_mrt_targets\": " + std::to_string(static_cast<int>(doc.twigl_mrt_targets)) + ","
+            + "\n    \"twigl_has_backbuffer\": " + (doc.twigl_has_backbuffer ? "true" : "false") + ","
+            + "\n    \"twigl_has_sound\": " + (doc.twigl_has_sound ? "true" : "false") + ",";
         std::string doc_json;
         if (brace != std::string::npos)
         {
             doc_json = profile.substr(0, brace + 1)
                 + "\n    \"path\": \"" + json_escape(doc.file_path) + "\","
                 + "\n    \"unsaved_source\": \"" + json_escape(doc.unsaved_source) + "\","
+                + twigl_fields
                 + profile.substr(brace + 1);
         }
         else
         {
             doc_json = "{ \"path\": \"" + json_escape(doc.file_path) + "\", \"unsaved_source\": \""
-                + json_escape(doc.unsaved_source) + "\" }";
+                + json_escape(doc.unsaved_source) + "\"," + twigl_fields + " }";
         }
         doc_json = trim_trailing_whitespace(doc_json);
         out += i == 0 ? "\n" : ",\n";
@@ -247,6 +291,7 @@ bool deserialize_workspace(const std::string& text, WorkspaceState& state)
     }
 
     state.active_tab = parse_int_field(text, "active_tab", 0);
+    state.active_document = parse_int_field(text, "active_document", 0);
     state.layout_ini = parse_string_field(text, "layout_ini");
     state.ui_font_size = parse_float_field(text, "ui_font_size", kDefaultBaseFontSize);
     if (!(state.ui_font_size >= kMinBaseFontSize) || !(state.ui_font_size <= kMaxBaseFontSize))
@@ -315,6 +360,11 @@ bool deserialize_workspace(const std::string& text, WorkspaceState& state)
                 deserialize_golf_profile(object, doc.pass_toggles, doc.protected_names, doc.budget_preset_index);
                 doc.file_path = parse_string_field(object, "path");
                 doc.unsaved_source = parse_string_field(object, "unsaved_source");
+                doc.twigl_mode = parse_int_field(object, "twigl_mode", 0);
+                doc.twigl_es300 = parse_bool_field(object, "twigl_es300", false);
+                doc.twigl_mrt_targets = static_cast<uint8_t>(parse_int_field(object, "twigl_mrt_targets", 1));
+                doc.twigl_has_backbuffer = parse_bool_field(object, "twigl_has_backbuffer", false);
+                doc.twigl_has_sound = parse_bool_field(object, "twigl_has_sound", false);
                 state.documents.push_back(doc);
                 obj_start = std::string::npos;
             }

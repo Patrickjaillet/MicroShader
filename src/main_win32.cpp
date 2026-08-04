@@ -101,6 +101,16 @@ namespace
         GolfPassToggles pass_toggles;
         std::string protected_names;
         int budget_preset_index = -1;
+        // ROADMAP.md/roadmap_twigl.md Phase 44.3 -- mirrors
+        // WorkspaceDocument's own twigl_* fields (workspace.h); kept in
+        // sync at exactly the same points pass_toggles/protected_names/
+        // budget_preset_index already are (see sync_active_document_from_editor/
+        // load_document_into_editor below).
+        int32_t twigl_mode = 0;
+        bool twigl_es300 = false;
+        uint8_t twigl_mrt_targets = 1;
+        bool twigl_has_backbuffer = false;
+        bool twigl_has_sound = false;
     };
 
     const char* kShimmerShaderSource =
@@ -172,11 +182,25 @@ namespace
     bool g_harder_pending = false;
     std::string g_harder_pending_code;
     UshaderGolfStats g_harder_pending_stats{};
+    bool g_harder_pending_frequency_aware_renaming = false;
     bool g_over_budget_hint = false;
     long long g_over_budget_bytes = 0;
     IDWriteTextFormat* g_hint_text_format = nullptr;
     std::chrono::steady_clock::time_point g_shimmer_until;
     ULONG_PTR g_gdiplus_token = 0;
+
+    // ROADMAP.md/roadmap_twigl.md Phase 43.1(c) -- a brief, tab-independent
+    // status confirmation shown after actions like "Copy for twigl.app"
+    // whose only other feedback is an invisible clipboard write. Mirrors the
+    // existing g_shimmer_until expiry pattern above.
+    std::wstring g_status_toast_text;
+    std::chrono::steady_clock::time_point g_status_toast_until;
+
+    void show_status_toast(const wchar_t* text)
+    {
+        g_status_toast_text = text;
+        g_status_toast_until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    }
 
     std::wstring exe_directory()
     {
@@ -486,6 +510,23 @@ namespace
         float dot_y = TitleBar::kHeight + Win32DocumentTabStrip::kHeight + TabStrip::kHeight * 0.5f;
         g_status_dot.paint(g_render_target, g_brushes, dot_x, dot_y);
 
+        // ROADMAP.md/roadmap_twigl.md Phase 43.1(c) -- drawn here, outside
+        // every per-tab conditional above, so it's visible regardless of
+        // which tab is active (Copy actions can be triggered from the
+        // command palette from any tab).
+        if (!g_status_toast_text.empty() && g_hint_text_format != nullptr
+            && std::chrono::steady_clock::now() < g_status_toast_until)
+        {
+            float toast_width = 260.0f;
+            D2D1_RECT_F toast_rect = D2D1::RectF(static_cast<float>(client_rect.right) - toast_width - 12.0f,
+                TitleBar::kHeight + Win32DocumentTabStrip::kHeight + TabStrip::kHeight + 8.0f,
+                static_cast<float>(client_rect.right) - 12.0f,
+                TitleBar::kHeight + Win32DocumentTabStrip::kHeight + TabStrip::kHeight + 36.0f);
+            g_render_target->FillRectangle(toast_rect, g_brushes.bg_panel_raised);
+            g_render_target->DrawText(g_status_toast_text.c_str(), static_cast<UINT32>(g_status_toast_text.size()),
+                g_hint_text_format, toast_rect, g_brushes.text_secondary);
+        }
+
         g_command_palette.paint(g_render_target, g_brushes);
 
         accessibility_end_frame();
@@ -578,6 +619,25 @@ namespace
         }
     }
 
+    // ROADMAP.md/roadmap_twigl.md Phase 43.3 -- always reserves the twigl
+    // snippet names (PI, hsv, rotate2D, ...) from the golfer's generated
+    // short-name space, on top of whatever the user typed in the Protected
+    // Names field, so a snippet inserted later can never collide with an
+    // identifier the golfer already renamed to that same short name. See
+    // twigl_reserved_snippet_names_csv()'s own doc comment
+    // (win32_twigl_export_panel.h) for why this deliberately does NOT also
+    // reserve twigl's single-character uniform names.
+    std::string effective_protected_names_for_golf()
+    {
+        std::string combined = g_golf_controls.protected_names();
+        if (!combined.empty())
+        {
+            combined += ",";
+        }
+        combined += twigl_reserved_snippet_names_csv();
+        return combined;
+    }
+
     void recompile_from_editor()
     {
         g_harder_pending = false;
@@ -593,7 +653,7 @@ namespace
             g_source_editor.clear_error_line();
 
             UshaderGolfOptions options = to_golf_options(g_golf_controls.toggles());
-            const std::string& protected_names = g_golf_controls.protected_names();
+            const std::string protected_names = effective_protected_names_for_golf();
             UshaderGolfStats stats{};
             char* trace_json = nullptr;
             char* golfed = ushader_golf_traced(source.c_str(), options,
@@ -619,7 +679,7 @@ namespace
 
             UshaderBudgetResult budget = ushader_estimate_budget(g_golfed_text_raw.c_str());
             UshaderBudgetResult original_budget = ushader_estimate_budget(source.c_str());
-            g_stats_panel.set_stats(stats, g_golfed_text_raw.size(), budget, original_budget, g_golf_controls.budget_preset_index(), true);
+            g_stats_panel.set_stats(stats, g_golfed_text_raw.size(), budget, original_budget, g_golf_controls.budget_preset_index(), true, options.frequency_aware_renaming);
             update_over_budget_hint(budget);
 
             std::string golfed_compile_error;
@@ -667,6 +727,11 @@ namespace
         doc.pass_toggles = g_golf_controls.toggles();
         doc.protected_names = g_golf_controls.protected_names();
         doc.budget_preset_index = g_golf_controls.budget_preset_index();
+        doc.twigl_mode = g_twigl_export_panel.current_mode();
+        doc.twigl_es300 = g_twigl_export_panel.current_es300();
+        doc.twigl_mrt_targets = g_twigl_export_panel.current_mrt_targets();
+        doc.twigl_has_backbuffer = g_twigl_export_panel.current_has_backbuffer();
+        doc.twigl_has_sound = g_twigl_export_panel.current_has_sound();
     }
 
     void load_document_into_editor(HWND hwnd, int index)
@@ -681,6 +746,8 @@ namespace
         g_golf_controls.set_toggles(doc.pass_toggles);
         g_golf_controls.set_protected_names(doc.protected_names);
         g_golf_controls.set_budget_preset_index(doc.budget_preset_index);
+        g_twigl_export_panel.restore_state(doc.twigl_mode, doc.twigl_es300, doc.twigl_mrt_targets,
+            doc.twigl_has_backbuffer, doc.twigl_has_sound);
         recompile_from_editor();
         layout_chrome(hwnd);
     }
@@ -754,11 +821,42 @@ namespace
 
     void copy_as_twigl_action()
     {
-        char* rewritten = ushader_twigl_rewrite(g_golfed_text_raw.c_str(), g_twigl_export_panel.current_mode(), g_twigl_export_panel.current_es300());
-        if (rewritten != nullptr)
+        // ROADMAP.md/roadmap_twigl.md Phase 42.4 -- this used to call
+        // ushader_twigl_rewrite directly with only mode/es300, silently
+        // ignoring whatever MRT/backbuffer/sound state the Export panel's
+        // own preview was showing at the time. compute_export_text() is the
+        // exact same call the live preview uses, so what gets copied is now
+        // guaranteed to be what the user was just looking at.
+        std::string rewritten = g_twigl_export_panel.compute_export_text(g_golfed_text_raw);
+        if (!rewritten.empty())
         {
-            copy_text_to_clipboard(std::string(rewritten));
-            ushader_free_string(rewritten);
+            copy_text_to_clipboard(rewritten);
+            // ROADMAP.md/roadmap_twigl.md Phase 43.1(c) -- the only other
+            // feedback for a clipboard write is invisible, so confirm it.
+            show_status_toast(L"Copied \u2014 paste into twigl.app");
+        }
+    }
+
+    // ROADMAP.md/roadmap_twigl.md Phase 43.2 -- the command-palette
+    // counterpart of the Export panel's "Import twigl shader" button
+    // (win32_twigl_export_panel.cpp), for reachability without switching to
+    // the Twigl Export tab first. Imports from the same panel's current
+    // preview text, exactly like the button does, so both entry points
+    // reconstruct the same source.
+    void import_twigl_shader_action(HWND hwnd)
+    {
+        std::string preview_text = g_twigl_export_panel.preview_text_for_import();
+        if (preview_text.empty())
+        {
+            return;
+        }
+        char* unrewritten = ushader_twigl_unrewrite(preview_text.c_str(), g_twigl_export_panel.current_mode());
+        if (unrewritten != nullptr)
+        {
+            g_source_editor.set_text_utf8(std::string(unrewritten));
+            ushader_free_string(unrewritten);
+            show_status_toast(L"Imported into Source");
+            layout_chrome(hwnd);
         }
     }
 
@@ -873,6 +971,117 @@ namespace
         save_framebuffer_png(g_compare_golfed_fb, *path);
     }
 
+    // ROADMAP.md/roadmap_twigl.md Phase 45.1 -- a small, fixed preset list
+    // (size in pixels, frame count) in the spirit of twigl.app's own
+    // capture presets. Only the *numbers* are modeled here, not any of
+    // twigl.app's UI text/labels (see roadmap_twigl.md 45.1's own note on
+    // why: those numbers aren't copyrightable, the surrounding UI copy
+    // would be).
+    struct GifCapturePreset
+    {
+        const wchar_t* label;
+        int size;
+        int frame_count;
+    };
+    constexpr GifCapturePreset kGifCapturePresets[] = {
+        {L"128x128, 60 frames", 128, 60},
+        {L"256x256, 120 frames", 256, 120},
+        {L"512x512, 180 frames", 512, 180},
+    };
+
+    void capture_viewport_gif_action(HWND hwnd, const GifCapturePreset& preset)
+    {
+        if (!g_gl_ready)
+        {
+            return;
+        }
+        std::optional<std::string> path = show_save_file_dialog_hwnd(hwnd,
+            L"GIF image (*.gif)\0*.gif\0All files (*.*)\0*.*\0", L"gif", L"capture.gif");
+        if (!path.has_value())
+        {
+            return;
+        }
+
+        const int width = preset.size;
+        const int height = preset.size;
+        const int frame_count = preset.frame_count;
+        constexpr float kFrameRate = 25.0f;
+        const uint16_t delay_centiseconds = static_cast<uint16_t>(100.0f / kFrameRate + 0.5f);
+
+        g_viewport.make_current();
+        ShaderRunner& runner = g_golfed_gl_ready ? g_golfed_runner : g_shader_runner;
+
+        g_compare_golfed_fb.resize(width, height);
+
+        // Each frame's pixels are captured into its own buffer up front
+        // (rather than re-reading in place) so every pointer handed to
+        // ushader_encode_gif below stays valid for the single FFI call
+        // that consumes all of them together.
+        std::vector<std::vector<unsigned char>> frames_pixels;
+        frames_pixels.reserve(static_cast<std::size_t>(frame_count));
+
+        for (int frame_index = 0; frame_index < frame_count; ++frame_index)
+        {
+            ShaderUniforms uniforms{};
+            uniforms.resolution_x = static_cast<float>(width);
+            uniforms.resolution_y = static_cast<float>(height);
+            uniforms.time = static_cast<float>(frame_index) / kFrameRate;
+            uniforms.frame = frame_index;
+            uniforms.frame_rate = kFrameRate;
+
+            g_compare_golfed_fb.bind();
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            runner.draw(uniforms);
+            g_compare_golfed_fb.unbind(width, height);
+
+            std::vector<unsigned char> pixels;
+            if (!g_compare_golfed_fb.read_pixels(pixels))
+            {
+                return;
+            }
+
+            // OpenGL's framebuffer origin is bottom-left; GIF (like every
+            // other common image format) is stored top-down. save_framebuffer_png
+            // handles this via stbi_flip_vertically_on_write -- there is no
+            // equivalent flag here, so the rows are flipped explicitly.
+            std::vector<unsigned char> flipped(pixels.size());
+            const std::size_t stride = static_cast<std::size_t>(width) * 4;
+            for (int y = 0; y < height; ++y)
+            {
+                std::memcpy(&flipped[static_cast<std::size_t>(y) * stride],
+                    &pixels[static_cast<std::size_t>(height - 1 - y) * stride], stride);
+            }
+            frames_pixels.push_back(std::move(flipped));
+        }
+
+        std::vector<const uint8_t*> frame_ptrs;
+        frame_ptrs.reserve(frames_pixels.size());
+        for (const auto& frame : frames_pixels)
+        {
+            frame_ptrs.push_back(frame.data());
+        }
+
+        UshaderByteBuffer gif = ushader_encode_gif(frame_ptrs.data(), frame_ptrs.size(),
+            static_cast<uint16_t>(width), static_cast<uint16_t>(height), delay_centiseconds);
+        if (gif.data != nullptr && gif.len > 0)
+        {
+            // write_utf8_file (src/platform/paths.cpp) already does the
+            // correct UTF-8 -> UTF-16 path conversion and writes via
+            // fwrite with an explicit byte count, so it's binary-safe for
+            // arbitrary content (including embedded zero bytes, which a
+            // GIF's LZW-compressed data can certainly contain) -- reusing
+            // it here instead of hand-rolling a second path-conversion
+            // call site.
+            std::string gif_bytes(reinterpret_cast<const char*>(gif.data), gif.len);
+            if (write_utf8_file(*path, gif_bytes))
+            {
+                show_status_toast(L"GIF saved");
+            }
+        }
+        ushader_free_byte_buffer(gif);
+    }
+
     std::string build_session_report_html()
     {
         std::string source = g_source_editor.text_utf8();
@@ -914,6 +1123,7 @@ namespace
         sync_active_document_from_editor();
         WorkspaceState state;
         state.active_tab = g_tab_strip.active_index();
+        state.active_document = g_active_document;
         for (const EditorDocument& doc : g_documents)
         {
             WorkspaceDocument wdoc;
@@ -921,6 +1131,11 @@ namespace
             wdoc.pass_toggles = doc.pass_toggles;
             wdoc.protected_names = doc.protected_names;
             wdoc.budget_preset_index = doc.budget_preset_index;
+            wdoc.twigl_mode = doc.twigl_mode;
+            wdoc.twigl_es300 = doc.twigl_es300;
+            wdoc.twigl_mrt_targets = doc.twigl_mrt_targets;
+            wdoc.twigl_has_backbuffer = doc.twigl_has_backbuffer;
+            wdoc.twigl_has_sound = doc.twigl_has_sound;
             if (doc.file_path.empty())
             {
                 wdoc.unsaved_source = doc.source_text;
@@ -955,6 +1170,31 @@ namespace
         load_document_into_editor(hwnd, next_active);
     }
 
+    // golf.md Phase 32.1 -- `ushader_golf_harder`/`_deep` can flip toggles
+    // (including `frequency_aware_renaming`) relative to the base options
+    // passed in; the FFI boundary reports this via `out_applied_json`
+    // (`[{"pass_name":...,"from":...,"to":...}]`) rather than returning the
+    // full final option set. This scans that JSON for one specific pass
+    // name and returns its final "to" value, falling back to `base_value`
+    // (the toggle's state before the search ran) when the search never
+    // touched that coordinate.
+    bool applied_json_final_bool(const std::string& json, const char* pass_name, bool base_value)
+    {
+        std::string needle = std::string("\"pass_name\":\"") + pass_name + "\"";
+        std::size_t pos = json.find(needle);
+        if (pos == std::string::npos)
+        {
+            return base_value;
+        }
+        std::size_t to_pos = json.find("\"to\":\"", pos);
+        if (to_pos == std::string::npos)
+        {
+            return base_value;
+        }
+        std::size_t value_start = to_pos + 6;
+        return json.compare(value_start, 4, "true") == 0;
+    }
+
     // golf.md Phase 32.1 -- runs the bounded "Golf harder" search against
     // the currently golfed output and, only when it finds something
     // strictly smaller, stages it as a pending diff on the Diff tab rather
@@ -969,7 +1209,7 @@ namespace
 
         std::string source = g_source_editor.text_utf8();
         UshaderGolfOptions options = to_golf_options(g_golf_controls.toggles());
-        const std::string& protected_names = g_golf_controls.protected_names();
+        const std::string protected_names = effective_protected_names_for_golf();
 
         bool compression_based = false;
         int preset_index = g_golf_controls.budget_preset_index();
@@ -1008,6 +1248,9 @@ namespace
         {
             g_harder_pending_code = std::string(harder);
             g_harder_pending_stats = stats;
+            g_harder_pending_frequency_aware_renaming = applied_json != nullptr
+                ? applied_json_final_bool(std::string(applied_json), "frequency_aware_renaming", options.frequency_aware_renaming)
+                : options.frequency_aware_renaming;
             g_harder_pending = true;
             g_diff_view.set_diff(compute_unified_diff(g_golfed_text_raw, g_harder_pending_code));
             switch_tab(hwnd, kDiffTabIndex);
@@ -1037,7 +1280,7 @@ namespace
 
         UshaderBudgetResult budget = ushader_estimate_budget(g_golfed_text_raw.c_str());
         UshaderBudgetResult original_budget = ushader_estimate_budget(source.c_str());
-        g_stats_panel.set_stats(g_harder_pending_stats, g_golfed_text_raw.size(), budget, original_budget, g_golf_controls.budget_preset_index(), true);
+        g_stats_panel.set_stats(g_harder_pending_stats, g_golfed_text_raw.size(), budget, original_budget, g_golf_controls.budget_preset_index(), true, g_harder_pending_frequency_aware_renaming);
         update_over_budget_hint(budget);
 
         std::string golfed_compile_error;
@@ -1069,10 +1312,16 @@ namespace
         // golf profile (toggles/protected names/budget preset) as its
         // starting point, rather than the built-in defaults -- the common
         // case is opening a related shader while already tuned for the
-        // project at hand.
+        // project at hand. ROADMAP.md/roadmap_twigl.md Phase 44.3 extends
+        // the same inheritance to the Twigl Export panel's state.
         doc.pass_toggles = g_golf_controls.toggles();
         doc.protected_names = g_golf_controls.protected_names();
         doc.budget_preset_index = g_golf_controls.budget_preset_index();
+        doc.twigl_mode = g_twigl_export_panel.current_mode();
+        doc.twigl_es300 = g_twigl_export_panel.current_es300();
+        doc.twigl_mrt_targets = g_twigl_export_panel.current_mrt_targets();
+        doc.twigl_has_backbuffer = g_twigl_export_panel.current_has_backbuffer();
+        doc.twigl_has_sound = g_twigl_export_panel.current_has_sound();
         g_documents.push_back(doc);
         load_document_into_editor(hwnd, static_cast<int>(g_documents.size()) - 1);
         add_recent_file(utf8_path);
@@ -1128,7 +1377,8 @@ namespace
             {"Copy as Shadertoy", []() { copy_as_shadertoy_action(); }},
             {"Copy as Bonzomatic", []() { copy_as_bonzomatic_action(); }},
             {"Copy as bare main()", []() { copy_as_bare_main_action(); }},
-            {"Copy as twigl (selected mode)", []() { copy_as_twigl_action(); }},
+            {"Copy for twigl.app (selected mode)", []() { copy_as_twigl_action(); }},
+            {"Import twigl shader into Source", [hwnd]() { import_twigl_shader_action(hwnd); }},
             {"Save golf profile...", [hwnd]() { save_profile_action(hwnd); }},
             {"Load golf profile...", [hwnd]() { load_profile_action(hwnd); }},
             {"Apply profile: Maximum", [hwnd]() { apply_profile(hwnd, builtin_profile_maximum(), g_golf_controls.protected_names(), g_golf_controls.budget_preset_index()); }},
@@ -1136,6 +1386,9 @@ namespace
             {"Apply profile: None", [hwnd]() { apply_profile(hwnd, builtin_profile_none(), g_golf_controls.protected_names(), g_golf_controls.budget_preset_index()); }},
             {"Import exclude/protected name list...", [hwnd]() { import_exclude_list_action_from_palette(hwnd); }},
             {"Capture viewport as PNG...", [hwnd]() { capture_viewport_png_action(hwnd); }},
+            {"Capture viewport as GIF (128x128, 60 frames)...", [hwnd]() { capture_viewport_gif_action(hwnd, kGifCapturePresets[0]); }},
+            {"Capture viewport as GIF (256x256, 120 frames)...", [hwnd]() { capture_viewport_gif_action(hwnd, kGifCapturePresets[1]); }},
+            {"Capture viewport as GIF (512x512, 180 frames)...", [hwnd]() { capture_viewport_gif_action(hwnd, kGifCapturePresets[2]); }},
             {"Export session report (HTML)...", [hwnd]() { export_session_report_action(hwnd); }},
         };
         for (const std::string& recent_path : load_recent_files())
@@ -1500,6 +1753,31 @@ namespace
                     g_source_editor.insert_text_utf8(snippet_source);
                     layout_chrome(hwnd);
                 }
+                std::string copy_text;
+                if (g_twigl_export_panel.take_pending_copy_request(copy_text))
+                {
+                    // ROADMAP.md/roadmap_twigl.md Phase 43.1 -- same
+                    // guaranteed-correct text the command palette's "Copy
+                    // for twigl.app" entry produces (copy_as_twigl_action
+                    // below); both go through compute_export_text() so
+                    // they can never diverge.
+                    if (!copy_text.empty())
+                    {
+                        copy_text_to_clipboard(copy_text);
+                        show_status_toast(L"Copied \u2014 paste into twigl.app");
+                    }
+                }
+                std::string import_source;
+                if (g_twigl_export_panel.take_pending_import(import_source))
+                {
+                    // ROADMAP.md/roadmap_twigl.md Phase 43.2 -- replaces the
+                    // Source editor's contents wholesale (this is a full
+                    // shader reconstruction, not a snippet to merge into
+                    // whatever is already there).
+                    g_source_editor.set_text_utf8(import_source);
+                    show_status_toast(L"Imported into Source");
+                    layout_chrome(hwnd);
+                }
             }
             else if (g_tab_strip.active_index() == kGolfTipsTabIndex && g_golf_tips_panel.contains(x, y))
             {
@@ -1846,13 +2124,19 @@ int main()
         WorkspaceState state;
         if (!session_text.empty() && deserialize_workspace(session_text, state))
         {
-            for (const WorkspaceDocument& wdoc : state.documents)
+            for (std::size_t saved_index = 0; saved_index < state.documents.size(); ++saved_index)
             {
+                const WorkspaceDocument& wdoc = state.documents[saved_index];
                 EditorDocument doc;
                 doc.file_path = wdoc.file_path;
                 doc.pass_toggles = wdoc.pass_toggles;
                 doc.protected_names = wdoc.protected_names;
                 doc.budget_preset_index = wdoc.budget_preset_index;
+                doc.twigl_mode = wdoc.twigl_mode;
+                doc.twigl_es300 = wdoc.twigl_es300;
+                doc.twigl_mrt_targets = wdoc.twigl_mrt_targets;
+                doc.twigl_has_backbuffer = wdoc.twigl_has_backbuffer;
+                doc.twigl_has_sound = wdoc.twigl_has_sound;
                 if (!wdoc.file_path.empty())
                 {
                     std::string disk_content = read_utf8_file(wdoc.file_path);
@@ -1865,11 +2149,23 @@ int main()
                 }
                 else
                 {
-                    doc.source_text = wdoc.unsaved_source.empty() ? kDefaultShaderSource : wdoc.unsaved_source;
+                    doc.source_text = wdoc.unsaved_source;
                     doc.display_name = "Untitled " + std::to_string(g_next_untitled_number++);
+                }
+                if (static_cast<int>(saved_index) == state.active_document)
+                {
+                    g_active_document = static_cast<int>(g_documents.size());
                 }
                 g_documents.push_back(doc);
             }
+        }
+        if (g_active_document < 0 || g_active_document >= static_cast<int>(g_documents.size()))
+        {
+            g_active_document = 0;
+        }
+        if (state.active_tab >= 0)
+        {
+            g_tab_strip.switch_to(state.active_tab);
         }
     }
     if (g_documents.empty())
@@ -1878,12 +2174,17 @@ int main()
         doc.display_name = "Untitled " + std::to_string(g_next_untitled_number++);
         doc.source_text = kDefaultShaderSource;
         g_documents.push_back(doc);
+        g_active_document = 0;
     }
-    g_active_document = 0;
-    g_source_editor.set_text_utf8(g_documents[0].source_text);
-    g_golf_controls.set_toggles(g_documents[0].pass_toggles);
-    g_golf_controls.set_protected_names(g_documents[0].protected_names);
-    g_golf_controls.set_budget_preset_index(g_documents[0].budget_preset_index);
+    g_source_editor.set_text_utf8(g_documents[static_cast<std::size_t>(g_active_document)].source_text);
+    g_golf_controls.set_toggles(g_documents[static_cast<std::size_t>(g_active_document)].pass_toggles);
+    g_golf_controls.set_protected_names(g_documents[static_cast<std::size_t>(g_active_document)].protected_names);
+    g_golf_controls.set_budget_preset_index(g_documents[static_cast<std::size_t>(g_active_document)].budget_preset_index);
+    g_twigl_export_panel.restore_state(g_documents[static_cast<std::size_t>(g_active_document)].twigl_mode,
+        g_documents[static_cast<std::size_t>(g_active_document)].twigl_es300,
+        g_documents[static_cast<std::size_t>(g_active_document)].twigl_mrt_targets,
+        g_documents[static_cast<std::size_t>(g_active_document)].twigl_has_backbuffer,
+        g_documents[static_cast<std::size_t>(g_active_document)].twigl_has_sound);
     g_icons.load(exe_directory() + L"\\assets\\icons\\ui");
 
     RECT client_rect{};

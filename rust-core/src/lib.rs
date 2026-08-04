@@ -3,6 +3,7 @@ mod budget;
 mod callgraph;
 mod deflate;
 mod expr;
+mod gif;
 mod golfer;
 mod inline;
 mod iq;
@@ -23,6 +24,7 @@ pub use budget::{
     estimate_budget, estimate_deflate_bytes, estimate_twigl_geekest_budget, presets,
     BudgetPreset, BudgetResult,
 };
+pub use gif::{encode_gif, GifFrame, Rgb};
 pub use golfer::{golf, golf_with_options, golf_with_protected_names, AggressiveOptions, GolfResult, GolfStats};
 pub use search::{golf_harder, golf_harder_deep, AppliedChange, SearchObjective, SearchOutcome};
 pub use swizzle::SwizzleAlphabet;
