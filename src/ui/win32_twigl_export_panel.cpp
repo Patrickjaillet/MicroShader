@@ -228,7 +228,7 @@ void Win32TwiglExportPanel::paint(ID2D1RenderTarget* render_target, const ThemeB
     int snippets_per_row = 5;
     int snippet_rows = (kSnippetCount + snippets_per_row - 1) / snippets_per_row;
     float budget_y = static_cast<float>(origin_y + kPanelPadding
-        + (kButtonHeight + kRowGap) * 2
+        + (kButtonHeight + kRowGap) * 3
         + snippet_rows * (kButtonHeight + kButtonGap) + kRowGap);
     D2D1_RECT_F budget_rect = D2D1::RectF(static_cast<float>(origin_x + kPanelPadding), budget_y,
         static_cast<float>(origin_x + width_px - kPanelPadding), budget_y + 20.0f);

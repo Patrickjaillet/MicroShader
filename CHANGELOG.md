@@ -5,6 +5,18 @@ application.
 
 ## [Unreleased]
 
+## [4.1.2] - 2026-08-04
+
+### Fixed
+
+- The **Twigl** export tab showed a completely empty panel — no mode
+  buttons, no toggles, no Copy/Import buttons, no snippet buttons, and
+  no preview code — making the twigl.app export feature unusable from
+  a normal launch of the application. The panel was never initialized
+  at startup.
+- The byte-budget line on the Twigl tab overlapped the second row of
+  snippet buttons instead of appearing below them.
+
 ## [4.1.1] - 2026-08-04
 
 ### Fixed

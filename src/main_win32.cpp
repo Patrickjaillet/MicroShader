@@ -2085,6 +2085,10 @@ int main()
     {
         return 1;
     }
+    if (!g_twigl_export_panel.create(g_render_target, g_dwrite_factory))
+    {
+        return 1;
+    }
     if (!g_golf_tips_panel.create(g_render_target, g_dwrite_factory))
     {
         return 1;
