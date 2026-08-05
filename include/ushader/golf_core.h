@@ -182,16 +182,11 @@ char *ushader_golf_harder_deep(const char *source,
                                bool *out_improved,
                                char **out_applied_json);
 
-char *ushader_twigl_rewrite(const char *source, int32_t mode, bool es300);
-
-char *ushader_twigl_rewrite_mrt(const char *source, int32_t mode, uint8_t mrt_targets);
-
 // Combined entry point: applies mode/es300/MRT rewriting AND actually
-// declares the backbuffer/sound uniforms when requested (unlike
-// ushader_twigl_rewrite/ushader_twigl_rewrite_mrt above, which ignore those
-// two toggles entirely). This is the one function the Export panel's live
-// preview and the "Copy for twigl.app" clipboard action should both call, so
-// the two can never diverge. See ROADMAP.md/roadmap_twigl.md Phase 42.3/42.4.
+// declares the backbuffer/sound uniforms when requested. This is the one
+// function the Export panel's live preview and the "Copy for twigl.app"
+// clipboard action should both call, so the two can never diverge. See
+// ROADMAP.md/roadmap_twigl.md Phase 42.3/42.4.
 char *ushader_twigl_rewrite_full(const char *source,
                                   int32_t mode,
                                   bool es300,
@@ -204,16 +199,16 @@ char *ushader_twigl_rewrite_full(const char *source,
 // input, for the Export panel's "Import twigl shader" action.
 char *ushader_twigl_unrewrite(const char *source, int32_t mode);
 
+// The export (ushader_twigl_rewrite_full) already auto-resolves every
+// rename-target collision itself -- e.g. renaming the shader's own local
+// variable named "r" to "r_0" so it stops colliding with iResolution's
+// Geek-family shorthand. This returns a single string joining (with "; ")
+// a human-readable note for each rename actually applied for this
+// source/mode/es300 combination, so the UI can tell the user their shader
+// was adjusted. Empty (not null) when none were needed.
+char *ushader_twigl_rename_collision_warnings(const char *source, int32_t mode, bool es300);
+
 char *ushader_twigl_snippet(const char *name);
-
-char *ushader_twigl_snippets_json(void);
-
-UshaderBudgetResult ushader_estimate_twigl_geekest_budget(const char *source);
-
-char *ushader_twigl_export_uniform_names_json(int32_t mode,
-                                              uint8_t mrt_targets,
-                                              bool has_backbuffer,
-                                              bool has_sound);
 
 #ifdef __cplusplus
 }  // extern "C"

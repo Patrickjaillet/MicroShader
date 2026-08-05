@@ -76,9 +76,10 @@ shader](#golfing-your-shader)), and a column of three small, labeled,
 always-live previews — **Source**, **Golfed**, and **Twigl** — sits
 just to its left, so you can visually confirm all three still render
 the same image no matter which tab you're on. The Twigl preview stays
-blank whenever the current Twigl Export settings (ES 3.00 or MRT)
-produce a shader this desktop viewport can't run — that's a
-known WebGL2-only limitation of those two options, not a bug.
+blank (its label changes to say so explicitly) whenever the current
+Twigl Export settings (ES 3.00 or MRT) produce a shader this desktop
+viewport can't run — that's a known WebGL2-only limitation of those
+two options, not a bug.
 
 ## Writing or opening a shader
 
@@ -229,9 +230,15 @@ one-liner playground:
   limit in Geekest mode) update as you change these options.
 - **Copy for twigl.app** puts the result on the clipboard, with a
   brief on-screen confirmation once it's done.
-- **Import twigl shader** does the reverse: paste code copied from
-  twigl.app (or typed by hand in twigl's shorthand) and this button
-  converts it back into a normal, editable shader in the Source tab.
+- **Import twigl shader** does the reverse: click into the preview box,
+  paste code copied from twigl.app (or type it by hand in twigl's
+  shorthand) — it stays there even if you switch tabs or edit the
+  Source tab in the meantime — then click this button to convert it
+  back into a normal, editable shader in the Source tab. Make sure the
+  mode button matches what the pasted code actually uses first (e.g.
+  select **Geek** before pasting Geek-shorthand code); ES 3.00 and MRT
+  toggles are read from the pasted code itself, so those don't need to
+  be pre-selected.
 
 ### Session report
 

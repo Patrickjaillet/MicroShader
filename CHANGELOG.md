@@ -5,6 +5,43 @@ application.
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-08-05
+
+### Fixed
+
+- The Twigl export conversion never handled genuine Shadertoy-style
+  `mainImage(out vec4 fragColor, in vec2 fragCoord)` shaders — which is
+  what every real Shadertoy shader (and this app's own default shader)
+  actually uses — correctly. It silently left the function wrapper
+  untouched, so the Twigl export was effectively broken for real-world
+  shaders regardless of the selected mode. Genuine Shadertoy source now
+  converts correctly to and from every Twigl mode.
+- The **Twigl** tab's "Import twigl shader" preview box was read-only,
+  making it impossible to paste code copied from twigl.app — it's now
+  editable, and your pasted text survives switching tabs or editing the
+  Source tab until you click Import.
+- Importing a shader exported in ES 3.00 or MRT mode produced GLSL that
+  failed to compile back in the Source tab (leftover `#version 300 es`
+  header, mismatched output-variable declarations, and — for Geeker/
+  Geekest — duplicate uniform declarations conflicting with ones the app
+  already provides).
+- Twigl export could silently produce a visually wrong shader when your
+  own code already used a local variable named `r`/`m`/`t`/`f`/`b`/`o`,
+  colliding with the Geek-family uniform/output shorthand (e.g. a
+  raymarching shader's own grid-size variable named `r` colliding with
+  `iResolution`'s shorthand). Such collisions are now resolved
+  automatically — your identifier is renamed (e.g. `r` becomes `r_0`)
+  and a note in the panel tells you it happened.
+- Golfing a shader before exporting to Twigl could rename an unrelated
+  local variable to `r`/`m`/`t`/`f`/`b`/`o`, colliding with the Twigl
+  uniform shorthand the same way.
+- The mini **Twigl** preview stayed blank with no explanation whenever ES
+  3.00 or MRT was enabled; its label now says so explicitly instead of
+  looking like a broken/empty preview.
+- The Twigl budget gauge used the generic "X/Twitter shader" byte-budget
+  preset for every mode instead of the mode-specific "Twigl classic"/
+  "Twigl geekest" preset.
+
 ## [4.2.0] - 2026-08-04
 
 ### Added

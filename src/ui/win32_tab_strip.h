@@ -27,6 +27,15 @@ public:
     static constexpr int kTabCount = 10;
     int origin_y() const { return top; }
 
+    // Looks up a tab's index by its name (matching the label passed to
+    // "Switch to tab: ..." command-palette actions, e.g. "Twigl"), so
+    // callers that need a specific tab's index don't have to hardcode a
+    // number that has to stay in sync with this class's own kTabLabels/
+    // kTabNames array purely by convention (see roadmap.md P2 point 7 --
+    // this exact class of bug already shipped twice for the Twigl tab).
+    // Returns -1 if no tab has that name.
+    static int index_of(const char* name);
+
 private:
     static constexpr float kTabWidth = 120.0f;
     static constexpr float kCornerRadius = 2.0f;

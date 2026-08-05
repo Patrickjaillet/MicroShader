@@ -54,6 +54,18 @@ namespace
     }
 }
 
+int TabStrip::index_of(const char* name)
+{
+    for (int i = 0; i < kTabCount; ++i)
+    {
+        if (std::strcmp(kTabNames[i], name) == 0)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
 bool TabStrip::create(ID2D1RenderTarget* render_target, IDWriteFactory* dwrite_factory)
 {
     HRESULT hr = dwrite_factory->CreateTextFormat(

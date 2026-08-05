@@ -56,6 +56,60 @@ std::string twigl_reserved_snippet_names_csv()
     return csv;
 }
 
+std::string Win32TwiglExportPanel::reserved_uniform_names_csv() const
+{
+    if (mode == 0) // Classic uses long names (resolution/mouse/time/...) -- no collision risk.
+    {
+        return std::string();
+    }
+
+    std::string csv = "r,m,t,f";
+    const char* out_base = "o";
+    const char* back_base = "b";
+
+    if (mrt_targets >= 2)
+    {
+        csv += ",";
+        csv += out_base;
+        csv += "0,";
+        csv += out_base;
+        csv += "1";
+    }
+    else
+    {
+        csv += ",";
+        csv += out_base;
+    }
+
+    if (has_backbuffer)
+    {
+        csv += ",";
+        if (mrt_targets >= 2)
+        {
+            csv += back_base;
+            csv += "0,";
+            csv += back_base;
+            csv += "1";
+        }
+        else
+        {
+            csv += back_base;
+        }
+    }
+
+    if (has_sound)
+    {
+        csv += ",s";
+    }
+
+    if (mode == 3) // Geekest additionally shortens gl_FragCoord to FC.
+    {
+        csv += ",FC";
+    }
+
+    return csv;
+}
+
 bool Win32TwiglExportPanel::create(ID2D1RenderTarget* render_target, IDWriteFactory* dwrite_factory)
 {
     for (Win32ToolButton& button : mode_buttons)
@@ -72,7 +126,10 @@ bool Win32TwiglExportPanel::create(ID2D1RenderTarget* render_target, IDWriteFact
     {
         if (!button.create(render_target, dwrite_factory)) { return false; }
     }
-    if (!preview_editor.create(render_target, dwrite_factory, true)) { return false; }
+    // Editable (not read-only) so a user can paste code copied from
+    // twigl.app directly into this box and have "Import" reconstruct it --
+    // see preview_text_editor()'s doc comment (win32_twigl_export_panel.h).
+    if (!preview_editor.create(render_target, dwrite_factory, false)) { return false; }
 
     if (FAILED(dwrite_factory->CreateTextFormat(
         L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
@@ -157,6 +214,11 @@ void Win32TwiglExportPanel::layout(int x, int y, int width, int height)
     int budget_label_height = 22;
     row_y += budget_label_height;
 
+    // Always reserved (even when empty) so the layout doesn't shift
+    // depending on whether an auto-rename notice is currently showing.
+    int notice_label_height = 18;
+    row_y += notice_label_height;
+
     int preview_top = row_y;
     int preview_height = (y + height) - preview_top;
     if (preview_height < 0) { preview_height = 0; }
@@ -211,10 +273,19 @@ void Win32TwiglExportPanel::paint(ID2D1RenderTarget* render_target, const ThemeB
     char budget_text[160];
     std::size_t preset_count = 0;
     const BudgetPreset* presets = budget_presets(preset_count);
+    // Classic mode's export stays plain Shadertoy-style GLSL (long uniform
+    // names), matching the "Twigl classic" preset's own intent; every other
+    // mode is the short-uniform "geek" family, matching "Twigl geekest".
+    // Previously this always looked up the unrelated "X/Twitter shader"
+    // preset regardless of mode -- it happened to have the same 280-byte
+    // limit as both Twigl presets, so the gauge was coincidentally correct,
+    // but would have silently desynced from a future change to either
+    // preset's limit. See roadmap.md P2 point 9.
+    const char* preset_name = (mode == 0) ? "Twigl classic" : "Twigl geekest";
     long long tweet_limit = -1;
     for (std::size_t i = 0; i < preset_count; ++i)
     {
-        if (std::string(presets[i].name) == "X/Twitter shader")
+        if (std::string(presets[i].name) == preset_name)
         {
             tweet_limit = presets[i].raw_limit;
             break;
@@ -237,6 +308,19 @@ void Win32TwiglExportPanel::paint(ID2D1RenderTarget* render_target, const ThemeB
         : D2D1::ColorF(tokens::status_ok.x, tokens::status_ok.y, tokens::status_ok.z));
     std::wstring budget_wide = utf8_to_wide(budget_text);
     render_target->DrawText(budget_wide.c_str(), static_cast<UINT32>(budget_wide.size()), label_format, budget_rect, dynamic_brush);
+
+    if (!collision_notice_text.empty())
+    {
+        // Purely informational -- the export already auto-renamed the
+        // conflicting identifier by the time this is shown (see
+        // ushader_twigl_rename_collision_warnings's doc comment), so this
+        // uses the same neutral tone as other hint text rather than the
+        // budget gauge's red/green pass-fail coloring.
+        D2D1_RECT_F notice_rect = D2D1::RectF(static_cast<float>(origin_x + kPanelPadding), budget_y + 20.0f,
+            static_cast<float>(origin_x + width_px - kPanelPadding), budget_y + 38.0f);
+        std::wstring notice_wide = utf8_to_wide(std::string("Note: ") + collision_notice_text);
+        render_target->DrawText(notice_wide.c_str(), static_cast<UINT32>(notice_wide.size()), label_format, notice_rect, brushes.text_secondary);
+    }
 
     preview_editor.paint(render_target, brushes);
 }
@@ -306,6 +390,11 @@ bool Win32TwiglExportPanel::on_mouse_down(int client_x, int client_y)
             has_pending_import = true;
             ushader_free_string(unrewritten);
         }
+        // The pasted/edited text has now been consumed -- go back to
+        // auto-mirroring the Source tab's export text (force=true bypasses
+        // the dirty check, since we want this overwrite even though the box
+        // still differs from last_generated_preview_text).
+        recompute_preview(true);
         return true;
     }
     for (int i = 0; i < kSnippetCount; ++i)
@@ -406,11 +495,37 @@ std::string Win32TwiglExportPanel::compute_export_text(const std::string& golfed
     return result;
 }
 
-void Win32TwiglExportPanel::recompute_preview()
+void Win32TwiglExportPanel::recompute_preview(bool force)
 {
     std::string preview_text = compute_export_text(golfed_source_cache);
 
+    char* notices = ushader_twigl_rename_collision_warnings(golfed_source_cache.c_str(), mode, es300);
+    collision_notice_text = notices != nullptr ? std::string(notices) : std::string();
+    if (notices != nullptr)
+    {
+        ushader_free_string(notices);
+    }
+
+    if (!force && preview_editor.text_utf8() != last_generated_preview_text)
+    {
+        // The user has pasted/typed something of their own into the box
+        // since we last wrote to it -- leave it alone (still update the
+        // budget readout to reflect what's actually on screen).
+        last_budget = ushader_estimate_budget(preview_editor.text_utf8().c_str());
+        return;
+    }
+
+    if (preview_editor.text_utf8() != preview_text)
+    {
+        mini_preview_needs_refresh = true;
+    }
     preview_editor.set_text_utf8(preview_text);
+    last_generated_preview_text = preview_text;
     last_budget = ushader_estimate_budget(preview_text.c_str());
+}
+
+void Win32TwiglExportPanel::set_preview_focus(bool focused)
+{
+    preview_editor.set_focus(focused);
 }
 

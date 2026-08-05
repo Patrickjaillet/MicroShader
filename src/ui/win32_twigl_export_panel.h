@@ -72,6 +72,16 @@ public:
     bool current_has_backbuffer() const { return has_backbuffer; }
     bool current_has_sound() const { return has_sound; }
 
+    // Comma-separated list of the single-character uniform/output names
+    // (r/m/t/f/b/s/o/o0/o1/FC, mode-dependent) that this panel's *currently
+    // selected* mode/MRT/backbuffer/sound state will substitute into the
+    // export text. Empty for Classic mode, which uses long names that the
+    // golfer would never pick anyway. Callers should fold this into the
+    // golfer's protected-names set before compiling, so the golfer never
+    // renames an unrelated identifier to one of these names and collides
+    // with the twigl uniform rewrite that runs afterward.
+    std::string reserved_uniform_names_csv() const;
+
     // ROADMAP.md/roadmap_twigl.md Phase 44.3 -- restores this panel's
     // toggle state (e.g. from a WorkspaceDocument/EditorDocument on
     // document switch or session restore) and recomputes the preview so
@@ -94,6 +104,41 @@ public:
     // "Import" button reads from but is reachable without clicking into
     // the panel first.
     std::string preview_text_for_import() const;
+
+    // The preview box is an editable staging area: it starts out mirroring
+    // the auto-generated export text (like before), but the caller must
+    // route keyboard/mouse input to it (see main_win32.cpp's active_editor())
+    // so a user can paste real code copied from twigl.app and have "Import"
+    // actually reconstruct *that*, instead of only ever being able to
+    // round-trip whatever this panel already auto-generated.
+    Win32TextEditor* preview_text_editor() { return &preview_editor; }
+
+    // Mirrors Win32TextEditor::set_focus, forwarded so the caret only blinks
+    // while the Twigl Export tab is the active, focused tab.
+    void set_preview_focus(bool focused);
+
+    // Discards whatever the user has pasted/typed into the preview box and
+    // goes back to auto-mirroring the Source tab's export text. Called after
+    // any "Import" entry point (this panel's own button, or the
+    // command-palette equivalent in main_win32.cpp) has consumed the box's
+    // current text, so the box doesn't stay stuck showing stale pasted text
+    // once the source it was based on has changed.
+    void discard_preview_edits() { recompute_preview(true); }
+
+    // Poll-once flag (same pattern as take_pending_snippet_insert/
+    // take_pending_import/take_pending_copy_request): true if
+    // recompute_preview() has actually written new preview text since the
+    // last call to this method. The caller (main_win32.cpp) should only
+    // recompile the Twigl mini-preview viewport when this returns true --
+    // clicks that don't change the preview text (Copy, snippet inserts)
+    // don't need it, and re-compiling on every click regardless was wasted
+    // work (see roadmap.md P2 point 6).
+    bool consume_mini_preview_refresh_flag()
+    {
+        bool value = mini_preview_needs_refresh;
+        mini_preview_needs_refresh = false;
+        return value;
+    }
 
 private:
     static constexpr int kModeCount = 4;
@@ -130,6 +175,14 @@ private:
 
     std::string golfed_source_cache;
     UshaderBudgetResult last_budget{};
+    // Non-empty when the export auto-renamed one of the shader's own local
+    // identifiers to avoid a collision with a twigl uniform shorthand
+    // (r/m/t/f/b/o/FC) -- e.g. a local `r` becoming `r_0` so it stops
+    // colliding with iResolution's Geek-family shorthand (see
+    // ushader_twigl_rename_collision_warnings's own doc comment). The
+    // rename already happened by the time this is shown; this is purely
+    // informational, not something the user needs to act on.
+    std::string collision_notice_text;
 
     bool has_pending_snippet_insert = false;
     std::string pending_snippet_insert_source;
@@ -139,5 +192,21 @@ private:
 
     bool has_pending_copy_request = false;
 
-    void recompute_preview();
+    bool mini_preview_needs_refresh = false;
+
+    // The auto-generated text this panel last wrote into preview_editor.
+    // recompute_preview() compares preview_editor's *current* text against
+    // this to detect whether the user has pasted/typed something of their
+    // own into the (now-editable) box since the last auto-refresh -- if so,
+    // it must not clobber that with a fresh auto-generated preview.
+    std::string last_generated_preview_text;
+
+    // force=true always overwrites preview_editor with the freshly computed
+    // text (used right after "Import" consumes whatever the user pasted, to
+    // go back to auto-mirroring the Source tab). force=false (the default,
+    // used by every toggle/mode click and by set_golfed_source()) skips the
+    // overwrite if the user has diverged the box from the last
+    // auto-generated text, so pasted twigl.app code survives unrelated
+    // Source edits/recompiles until the user actually imports it.
+    void recompute_preview(bool force = false);
 };

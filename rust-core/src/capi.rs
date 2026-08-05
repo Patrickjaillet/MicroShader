@@ -1,4 +1,4 @@
-use crate::budget::{estimate_budget, estimate_twigl_geekest_budget};
+use crate::budget::estimate_budget;
 use crate::gif::{encode_gif, GifFrame};
 use crate::golfer::{
     golf_with_protected_names, golf_with_protected_names_traced, AggressiveOptions, GolferTrace,
@@ -6,8 +6,8 @@ use crate::golfer::{
 };
 use crate::search::{golf_harder, golf_harder_deep, AppliedChange, SearchObjective};
 use crate::twigl::{
-    rewrite_twigl_shader, rewrite_twigl_shader_full, rewrite_twigl_shader_mrt,
-    twigl_export_uniform_names, twigl_snippet, twigl_snippets, unrewrite_twigl_shader, TwiglMode,
+    resolve_rename_collisions, rewrite_twigl_shader_full, twigl_snippet, unrewrite_twigl_shader,
+    TwiglMode,
 };
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
@@ -601,46 +601,6 @@ fn twigl_mode_from_code(mode: i32) -> TwiglMode {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn ushader_twigl_rewrite(
-    source: *const c_char,
-    mode: i32,
-    es300: bool,
-) -> *mut c_char {
-    if source.is_null() {
-        return std::ptr::null_mut();
-    }
-    let source = match unsafe { CStr::from_ptr(source) }.to_str() {
-        Ok(s) => s,
-        Err(_) => return std::ptr::null_mut(),
-    };
-    let rewritten = rewrite_twigl_shader(source, twigl_mode_from_code(mode), es300);
-    match CString::new(rewritten) {
-        Ok(c_string) => c_string.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn ushader_twigl_rewrite_mrt(
-    source: *const c_char,
-    mode: i32,
-    mrt_targets: u8,
-) -> *mut c_char {
-    if source.is_null() {
-        return std::ptr::null_mut();
-    }
-    let source = match unsafe { CStr::from_ptr(source) }.to_str() {
-        Ok(s) => s,
-        Err(_) => return std::ptr::null_mut(),
-    };
-    let rewritten = rewrite_twigl_shader_mrt(source, twigl_mode_from_code(mode), mrt_targets);
-    match CString::new(rewritten) {
-        Ok(c_string) => c_string.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
-}
-
 // The single combined entry point the C++ shell should call for every
 // twigl-related output -- the live Export-panel preview, the budget badge,
 // and the clipboard "Copy for twigl.app" action all call this so they can
@@ -696,6 +656,33 @@ pub extern "C" fn ushader_twigl_unrewrite(source: *const c_char, mode: i32) -> *
     }
 }
 
+// rewrite_twigl_shader_full already resolves every rename-target collision
+// automatically (resolve_rename_collisions, called internally) -- this
+// returns a single string joining (with "; ") a human-readable note for
+// each rename it actually applied for this source/mode/es300 combination,
+// so the UI can tell the user their shader was adjusted (e.g. a local `r`
+// became `r_0`) instead of the export just silently differing from what
+// they typed. Empty (not null) when no renames were needed.
+#[no_mangle]
+pub extern "C" fn ushader_twigl_rename_collision_warnings(
+    source: *const c_char,
+    mode: i32,
+    es300: bool,
+) -> *mut c_char {
+    if source.is_null() {
+        return std::ptr::null_mut();
+    }
+    let source = match unsafe { CStr::from_ptr(source) }.to_str() {
+        Ok(s) => s,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let (_, applied) = resolve_rename_collisions(source, twigl_mode_from_code(mode), es300);
+    match CString::new(applied.join("; ")) {
+        Ok(c_string) => c_string.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn ushader_twigl_snippet(name: *const c_char) -> *mut c_char {
     if name.is_null() {
@@ -711,59 +698,3 @@ pub extern "C" fn ushader_twigl_snippet(name: *const c_char) -> *mut c_char {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn ushader_twigl_snippets_json() -> *mut c_char {
-    let mut out = String::from("[");
-    for (i, snippet) in twigl_snippets().iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        out.push_str("{\"name\":\"");
-        json_escape_into(&mut out, snippet.name);
-        out.push_str("\",\"source\":\"");
-        json_escape_into(&mut out, snippet.source);
-        out.push_str("\"}");
-    }
-    out.push(']');
-    match CString::new(out) {
-        Ok(c_string) => c_string.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn ushader_estimate_twigl_geekest_budget(source: *const c_char) -> UshaderBudgetResult {
-    if source.is_null() {
-        return UshaderBudgetResult { raw_bytes: 0, deflate_bytes: 0 };
-    }
-    let source = match unsafe { CStr::from_ptr(source) }.to_str() {
-        Ok(s) => s,
-        Err(_) => return UshaderBudgetResult { raw_bytes: 0, deflate_bytes: 0 },
-    };
-    let result = estimate_twigl_geekest_budget(source);
-    UshaderBudgetResult { raw_bytes: result.raw_bytes, deflate_bytes: result.deflate_bytes }
-}
-
-#[no_mangle]
-pub extern "C" fn ushader_twigl_export_uniform_names_json(
-    mode: i32,
-    mrt_targets: u8,
-    has_backbuffer: bool,
-    has_sound: bool,
-) -> *mut c_char {
-    let names = twigl_export_uniform_names(twigl_mode_from_code(mode), mrt_targets, has_backbuffer, has_sound);
-    let mut out = String::from("[");
-    for (i, name) in names.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        out.push('"');
-        json_escape_into(&mut out, name);
-        out.push('"');
-    }
-    out.push(']');
-    match CString::new(out) {
-        Ok(c_string) => c_string.into_raw(),
-        Err(_) => std::ptr::null_mut(),
-    }
-}

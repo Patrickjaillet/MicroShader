@@ -254,6 +254,60 @@ add_custom_command(
         $<TARGET_FILE_DIR:ushader>/assets
 )
 
+add_executable(twigl_golf_collision_test
+    tests/twigl_golf_collision_test.cpp
+    src/ui/win32_twigl_export_panel.cpp
+    src/ui/win32_text_editor.cpp
+    src/ui/win32_tool_button.cpp
+    src/ui/win32_theme_brushes.cpp
+    src/ui/win32_appearance_settings.cpp
+    src/ui/budget_presets.cpp
+    src/ui/glsl_token_rules.cpp
+    src/ui/glsl_syntax_colors.cpp
+    src/platform/accessibility_core.cpp
+    src/platform/utf8.cpp
+)
+
+target_include_directories(twigl_golf_collision_test PRIVATE
+    src
+)
+
+target_link_libraries(twigl_golf_collision_test PRIVATE
+    user32
+    gdi32
+    ole32
+    oleaut32
+    uiautomationcore
+    rust_core
+)
+
+add_executable(twigl_panel_hit_test
+    tests/twigl_panel_hit_test.cpp
+    src/ui/win32_twigl_export_panel.cpp
+    src/ui/win32_text_editor.cpp
+    src/ui/win32_tool_button.cpp
+    src/ui/win32_theme_brushes.cpp
+    src/ui/win32_appearance_settings.cpp
+    src/ui/budget_presets.cpp
+    src/ui/glsl_token_rules.cpp
+    src/ui/glsl_syntax_colors.cpp
+    src/platform/accessibility_core.cpp
+    src/platform/utf8.cpp
+)
+
+target_include_directories(twigl_panel_hit_test PRIVATE
+    src
+)
+
+target_link_libraries(twigl_panel_hit_test PRIVATE
+    user32
+    gdi32
+    ole32
+    oleaut32
+    uiautomationcore
+    rust_core
+)
+
 add_executable(wgl_equivalence_test
     tests/wgl_equivalence_test.cpp
     src/render/wgl_viewport_host.cpp
@@ -285,6 +339,8 @@ foreach(ushader_test_target
     exclude_list_import_test
     ushaderprofile_schema_test
     wgl_equivalence_test
+    twigl_golf_collision_test
+    twigl_panel_hit_test
 )
     add_test(NAME ${ushader_test_target}
         COMMAND ${ushader_test_target}

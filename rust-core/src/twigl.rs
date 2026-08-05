@@ -64,6 +64,17 @@ pub fn twigl_snippet(name: &str) -> Option<&'static str> {
     TWIGL_SNIPPETS.iter().find(|s| s.name == name).map(|s| s.source)
 }
 
+// Shared by replace_identifier and identifier_present below: true if the
+// `[start, end)` byte range of `text` is not immediately preceded/followed
+// by an identifier character, i.e. it's a genuine standalone identifier
+// occurrence rather than a substring of a longer one (e.g. `iTime` inside
+// `iTimeScale`).
+fn is_identifier_boundary_match(text: &str, start: usize, end: usize) -> bool {
+    let before_ok = text[..start].chars().last().map_or(true, |c| !(c.is_alphanumeric() || c == '_'));
+    let after_ok = text[end..].chars().next().map_or(true, |c| !(c.is_alphanumeric() || c == '_'));
+    before_ok && after_ok
+}
+
 // Avoids corrupting identifiers that merely contain `from` as a substring (e.g. `iTimeScale`).
 fn replace_identifier(input: &str, from: &str, to: &str) -> String {
     let mut result = String::with_capacity(input.len());
@@ -73,15 +84,7 @@ fn replace_identifier(input: &str, from: &str, to: &str) -> String {
             continue;
         }
         let end = start + from.len();
-        let before_ok = input[..start]
-            .chars()
-            .last()
-            .map_or(true, |c| !(c.is_alphanumeric() || c == '_'));
-        let after_ok = input[end..]
-            .chars()
-            .next()
-            .map_or(true, |c| !(c.is_alphanumeric() || c == '_'));
-        if before_ok && after_ok {
+        if is_identifier_boundary_match(input, start, end) {
             result.push_str(&input[last_end..start]);
             result.push_str(to);
             last_end = end;
@@ -136,6 +139,169 @@ fn strip_precision_and_uniform_declarations(input: &str) -> String {
         .concat()
         .trim_end()
         .to_string()
+}
+
+// Real Shadertoy code -- and every shader this app's own Source tab actually
+// compiles, including its own default shader (src/render/default_shader.h)
+// -- is ALWAYS written as `void mainImage(out vec4 X, in vec2 Y){...}`,
+// never as a literal `void main(){}` using `gl_FragColor`/`gl_FragCoord`
+// directly (ShaderRunner, src/render/shader_runner.cpp, wraps user source
+// with its own synthesized `void main(){ mainImage(uShaderOutColor,
+// gl_FragCoord.xy); }` that calls into the user's mainImage). Every other
+// function in this module operates on the literal `gl_FragColor`/
+// `gl_FragCoord` builtins, so this normalization -- unwrapping mainImage
+// into a plain `void main(){}` with its out/in parameters renamed to those
+// builtins -- must run first, before any of that logic, or a genuine
+// Shadertoy-style paste is left completely untouched by every later pass
+// (the exact bug this fixes: mainImage's parameter names, e.g. golfed to
+// single letters, are indistinguishable from ordinary user code to every
+// pass that only knows about gl_FragColor/gl_FragCoord).
+//
+// A no-op (returns input unchanged) whenever no `mainImage` function
+// definition is found, so already plain-`main`-style input (e.g. a second
+// call in the same pipeline, or hand-written twigl-shorthand code) is left
+// alone.
+fn normalize_mainimage_to_plain_main(input: &str) -> String {
+    let Some(name_pos) = input.find("mainImage") else {
+        return input.to_string();
+    };
+    let after_name = &input[name_pos + "mainImage".len()..];
+    let Some(paren_rel) = after_name.find('(') else {
+        return input.to_string();
+    };
+    // Only whitespace may separate the identifier from '(' for this to be a
+    // function definition/call rather than an unrelated identifier that
+    // merely starts with "mainImage" (e.g. a hypothetical "mainImageBuffer").
+    if !after_name[..paren_rel].chars().all(char::is_whitespace) {
+        return input.to_string();
+    }
+
+    let bytes = input.as_bytes();
+    let params_start = name_pos + "mainImage".len() + paren_rel + 1;
+    let mut depth = 1i32;
+    let mut idx = params_start;
+    while idx < bytes.len() && depth > 0 {
+        match bytes[idx] {
+            b'(' => depth += 1,
+            b')' => depth -= 1,
+            _ => {}
+        }
+        idx += 1;
+    }
+    if depth != 0 {
+        return input.to_string();
+    }
+    let params_end = idx - 1;
+    let params = &input[params_start..params_end];
+
+    let parts: Vec<&str> = params.split(',').collect();
+    if parts.len() != 2 {
+        return input.to_string();
+    }
+    let Some(out_name) = last_identifier_token(parts[0]) else {
+        return input.to_string();
+    };
+    let Some(coord_name) = last_identifier_token(parts[1]) else {
+        return input.to_string();
+    };
+
+    let mut brace_search = params_end + 1;
+    while brace_search < bytes.len() && bytes[brace_search] != b'{' {
+        if !(bytes[brace_search] as char).is_whitespace() {
+            return input.to_string();
+        }
+        brace_search += 1;
+    }
+    if brace_search >= bytes.len() {
+        return input.to_string();
+    }
+    let body_open = brace_search;
+    let mut depth = 1i32;
+    let mut idx2 = body_open + 1;
+    while idx2 < bytes.len() && depth > 0 {
+        match bytes[idx2] {
+            b'{' => depth += 1,
+            b'}' => depth -= 1,
+            _ => {}
+        }
+        idx2 += 1;
+    }
+    if depth != 0 {
+        return input.to_string();
+    }
+    let body_close = idx2 - 1;
+    let body = &input[body_open + 1..body_close];
+
+    let mut renamed_body = replace_identifier(body, out_name, "gl_FragColor");
+    // mainImage's coordinate parameter is `vec2`, but the `gl_FragCoord`
+    // builtin is `vec4` -- must keep the `.xy` swizzle or every arithmetic
+    // expression involving the renamed identifier becomes a vec4/vec2 type
+    // mismatch that fails to compile. If the source already wrote the
+    // parameter's own `.xy` explicitly (idiomatic in real Shadertoy code,
+    // e.g. `fragCoord.xy`), this substitution would double it up into
+    // `gl_FragCoord.xy.xy` -- collapse that back down; still exactly the
+    // same value (a `.xy` swizzle of an already-2-component vector is a
+    // no-op), just not doubled.
+    renamed_body = replace_identifier(&renamed_body, coord_name, "gl_FragCoord.xy");
+    renamed_body = renamed_body.replace("gl_FragCoord.xy.xy", "gl_FragCoord.xy");
+
+    let before = input[..name_pos].trim_end();
+    let before = before.strip_suffix("void").map(str::trim_end).unwrap_or(before);
+    let separator = if before.is_empty() { "" } else { "\n" };
+    let after = &input[body_close + 1..];
+
+    format!("{before}{separator}void main(){{{renamed_body}}}{after}")
+}
+
+fn last_identifier_token(param: &str) -> Option<&str> {
+    let token = param.trim().rsplit(char::is_whitespace).next()?;
+    if token.is_empty()
+        || !token
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_')
+    {
+        return None;
+    }
+    Some(token)
+}
+
+// The inverse of normalize_mainimage_to_plain_main above: rewraps a plain
+// `void main(){...}` using `gl_FragColor`/`gl_FragCoord` back into the
+// `void mainImage(out vec4 fragColor, in vec2 fragCoord){...}` signature
+// this app's Source tab (and real Shadertoy) actually requires. Called at
+// the very end of unrewrite_twigl_shader, so "Import" always reconstructs
+// source that will actually compile via ShaderRunner's own wrapping
+// convention, instead of a `void main(){}` that conflicts with it.
+fn wrap_plain_main_as_mainimage(input: &str) -> String {
+    let Some(main_pos) = input.find("void main(){") else {
+        return input.to_string();
+    };
+    let body_open = main_pos + "void main(){".len() - 1;
+    let bytes = input.as_bytes();
+    let mut depth = 1i32;
+    let mut idx = body_open + 1;
+    while idx < bytes.len() && depth > 0 {
+        match bytes[idx] {
+            b'{' => depth += 1,
+            b'}' => depth -= 1,
+            _ => {}
+        }
+        idx += 1;
+    }
+    if depth != 0 {
+        return input.to_string();
+    }
+    let body_close = idx - 1;
+    let body = &input[body_open + 1..body_close];
+
+    let mut renamed_body = replace_identifier(body, "gl_FragColor", "fragColor");
+    renamed_body = replace_identifier(&renamed_body, "gl_FragCoord", "fragCoord");
+
+    let before = &input[..main_pos];
+    let after = &input[body_close + 1..];
+    format!(
+        "{before}void mainImage(out vec4 fragColor,in vec2 fragCoord){{{renamed_body}}}{after}"
+    )
 }
 
 fn strip_main_wrapper(input: &str) -> String {
@@ -243,18 +409,16 @@ pub fn twigl_export_uniform_names(
     names
 }
 
-// Word-boundary-aware substring presence check, matching replace_identifier's
-// own boundary rule -- used by unrewrite_twigl_shader below to decide which
-// uniform declarations to reconstruct and whether a void main(){} wrapper
-// needs restoring.
+// Word-boundary-aware substring presence check, sharing
+// is_identifier_boundary_match with replace_identifier above -- used by
+// unrewrite_twigl_shader below to decide which uniform declarations to
+// reconstruct and whether a void main(){} wrapper needs restoring.
 fn identifier_present(text: &str, name: &str) -> bool {
     let mut start = 0usize;
     while let Some(pos) = text[start..].find(name) {
         let abs = start + pos;
         let end = abs + name.len();
-        let before_ok = text[..abs].chars().last().map_or(true, |c| !(c.is_alphanumeric() || c == '_'));
-        let after_ok = text[end..].chars().next().map_or(true, |c| !(c.is_alphanumeric() || c == '_'));
-        if before_ok && after_ok {
+        if is_identifier_boundary_match(text, abs, end) {
             return true;
         }
         start = abs + 1;
@@ -262,28 +426,54 @@ fn identifier_present(text: &str, name: &str) -> bool {
     false
 }
 
-// Reconstructs a plausible precision/uniform scaffold for whichever
-// Shadertoy-style uniforms are actually referenced in `body`. The exact
-// order/formatting is irrelevant to round-tripping through
-// rewrite_twigl_shader for Geeker/Geekest modes, since the forward pass
-// deletes every precision/uniform line wholesale (strip_precision_and_uniform_declarations)
-// -- what matters is only that a syntactically valid declaration exists for
-// every uniform the body actually uses.
+// Reconstructs a declaration scaffold for whichever uniforms are actually
+// referenced in `body` that this app's own Source tab does NOT already
+// provide. ShaderRunner's compilation wrapper (src/render/shader_runner.cpp,
+// kFragmentPrefix) always declares iResolution/iMouse/iTime/iFrame/
+// iFrameRate/iDate itself -- Source-tab shaders (including this app's own
+// default shader) never declare those themselves, and doing so here would
+// be a GLSL redefinition error when the reconstructed source is compiled.
+// iChannel0 is the one exception: nothing else declares it, so it's
+// reconstructed here, still only when actually referenced.
 fn reconstruct_uniform_scaffold(body: &str) -> String {
-    const UNIFORMS: &[(&str, &str)] = &[
-        ("iResolution", "uniform vec2 iResolution;\n"),
-        ("iMouse", "uniform vec2 iMouse;\n"),
-        ("iTime", "uniform float iTime;\n"),
-        ("iFrame", "uniform int iFrame;\n"),
-        ("iChannel0", "uniform sampler2D iChannel0;\n"),
-    ];
-    let mut scaffold = String::from("precision mediump float;\n");
-    for (name, decl) in UNIFORMS {
-        if identifier_present(body, name) {
-            scaffold.push_str(decl);
+    if identifier_present(body, "iChannel0") {
+        "uniform sampler2D iChannel0;\n".to_string()
+    } else {
+        String::new()
+    }
+}
+
+// Reverses twigl_es300_header: strips a leading `#version 300 es` directive
+// and the output-variable declaration(s) it introduced, returning the
+// remaining body plus whether a *single*, unqualified `out vec4 {base};`
+// declaration was removed (as opposed to `layout(location=N)`-qualified MRT
+// declarations, which are left unrenamed in the body -- see
+// unrewrite_twigl_shader's doc comment for why MRT output names don't map
+// back to gl_FragColor).
+fn strip_es300_output_header(input: &str, mode: TwiglMode) -> (String, bool) {
+    let base = es300_output_name(mode);
+    let Some(rest) = input.strip_prefix("#version 300 es\n") else {
+        return (input.to_string(), false);
+    };
+
+    let single_target_header = format!("out vec4 {base};\n");
+    if let Some(after_header) = rest.strip_prefix(&single_target_header) {
+        return (after_header.to_string(), true);
+    }
+
+    let mut remaining = rest;
+    let mut index: u8 = 0;
+    loop {
+        let layout_line = format!("layout(location={index}) out vec4 {base}{index};\n");
+        match remaining.strip_prefix(&layout_line) {
+            Some(after) => {
+                remaining = after;
+                index += 1;
+            }
+            None => break,
         }
     }
-    scaffold
+    (remaining.to_string(), false)
 }
 
 // The inverse of rewrite_twigl_shader: takes twigl-mode source (as typed or
@@ -298,22 +488,32 @@ fn reconstruct_uniform_scaffold(body: &str) -> String {
 // that literal cannot be distinguished from text where a user's own `PI`
 // reference was expanded -- this function does not attempt to reverse that
 // one substitution. Every other step (uniform renaming, precision/uniform
-// omission, `void main(){}` omission, `FC` shortening) is a straightforward,
-// well-defined inverse and is fully reversed. Round-trip correctness for
-// every case that matters in practice (every bundled `fixtures/twigl_*.glsl`
-// fixture, none of which trip the lossy PI/vec2 substitution) is verified by
+// omission, `void main(){}` omission, `FC` shortening, ES300 `#version`/`out
+// vec4` header removal) is a straightforward, well-defined inverse and is
+// fully reversed. Round-trip correctness for every case that matters in
+// practice (every bundled `fixtures/twigl_*.glsl` fixture, none of which trip
+// the lossy PI/vec2 substitution) is verified by
 // `unrewrite_then_rewrite_reproduces_every_bundled_twigl_fixture` below --
 // not merely asserted.
 //
+// ES300 MRT is a special case: rewrite_twigl_shader_mrt never renames
+// anything to `o0`/`o1` (or `outColor0`/`outColor1`) -- the source shader is
+// expected to already reference those output variable names directly, since
+// multiple render targets have no Shadertoy/gl_FragColor equivalent. So
+// unrewriting MRT output strips the `#version 300 es` + `layout(location=N)
+// out vec4 ...;` header lines but leaves `o0`/`o1` untouched in the body.
+//
 // Known, inherent ambiguity (not a bug, a property of the single-character
 // uniform convention itself): in Geek/Geeker/Geekest input, a user's own
-// locally-scoped variable literally named `r`/`m`/`t`/`f`/`b`/`s` is
+// locally-scoped variable literally named `r`/`m`/`t`/`f`/`b`/`s`/`o` is
 // indistinguishable, at the text level, from the global uniform of the same
 // name -- real GLSL scoping would let a local declaration shadow the global
 // uniform, but this function has no scope information and reverses every
 // occurrence. This is the same ambiguity anyone hand-porting geek-mode code
 // already has to watch for; it is not introduced by this function.
 pub fn unrewrite_twigl_shader(input: &str, mode: TwiglMode) -> String {
+    let (stripped, rename_output_to_frag_color) = strip_es300_output_header(input, mode);
+
     let reversed: &[(&str, &str)] = match mode {
         TwiglMode::Classic => &[
             ("resolution", "iResolution"),
@@ -331,19 +531,22 @@ pub fn unrewrite_twigl_shader(input: &str, mode: TwiglMode) -> String {
         ],
     };
 
-    let mut body = input.to_string();
+    let mut body = stripped;
     for (from, to) in reversed {
         body = replace_identifier(&body, from, to);
+    }
+    if rename_output_to_frag_color {
+        body = replace_identifier(&body, es300_output_name(mode), "gl_FragColor");
     }
     if matches!(mode, TwiglMode::Geekest) {
         body = replace_identifier(&body, "FC", "gl_FragCoord");
     }
 
     if matches!(mode, TwiglMode::Classic | TwiglMode::Geek) {
-        // Neither mode strips or omits anything on export (only Geeker and
-        // Geekest do), so the reversed identifiers are already the complete
-        // inverse -- nothing structural left to restore.
-        return body;
+        // Neither mode strips or omits precision/uniform declarations on
+        // export (only Geeker and Geekest do); the reversed identifiers plus
+        // the ES300 header removal above are already the complete inverse.
+        return wrap_plain_main_as_mainimage(&body);
     }
 
     // Geeker (and Geekest) additionally omit precision/uniform declarations
@@ -352,12 +555,15 @@ pub fn unrewrite_twigl_shader(input: &str, mode: TwiglMode) -> String {
     if needs_main_wrapper {
         body = format!("void main(){{{body}}}");
     }
+    body = wrap_plain_main_as_mainimage(&body);
     let scaffold = reconstruct_uniform_scaffold(&body);
     format!("{scaffold}{body}")
 }
 
 pub fn rewrite_twigl_shader(input: &str, mode: TwiglMode, es300: bool) -> String {
-    let mut output = rewrite_twigl_uniforms(input, mode);
+    let input = normalize_mainimage_to_plain_main(input);
+    let (input, _renames) = resolve_rename_collisions(&input, mode, es300);
+    let mut output = rewrite_twigl_uniforms(&input, mode);
     if matches!(mode, TwiglMode::Geeker | TwiglMode::Geekest) {
         output = strip_precision_and_uniform_declarations(&output);
     }
@@ -376,7 +582,17 @@ pub fn rewrite_twigl_shader(input: &str, mode: TwiglMode, es300: bool) -> String
 }
 
 pub fn rewrite_twigl_shader_mrt(input: &str, mode: TwiglMode, mrt_targets: u8) -> String {
-    let mut output = rewrite_twigl_uniforms(input, mode);
+    let input = normalize_mainimage_to_plain_main(input);
+    // es300=false here (even though MRT is always an ES300 export, see the
+    // comment below) -- unlike the single-target path, MRT never renames
+    // gl_FragColor to o/outColor at all; the source is expected to already
+    // reference o0/o1 (or outColor0/outColor1) directly, so there is no
+    // later substitution step for a pre-existing bare "o"/"outColor" to
+    // collide with, and resolve_rename_collisions's ES300 output-name check
+    // would incorrectly "resolve" a collision that doesn't exist. The r/m/
+    // t/f/b checks (mode-gated) and the Geekest FC check still apply.
+    let (input, _renames) = resolve_rename_collisions(&input, mode, false);
+    let mut output = rewrite_twigl_uniforms(&input, mode);
     if matches!(mode, TwiglMode::Geeker | TwiglMode::Geekest) {
         output = strip_precision_and_uniform_declarations(&output);
     }
@@ -442,6 +658,96 @@ pub fn twigl_backbuffer_and_sound_declarations(
     out
 }
 
+// Detects local-identifier collisions that a pure text-substitution rewrite
+// cannot safely avoid: Geek/Geeker/Geekest mode renames iResolution/iMouse/
+// iTime/iFrame/iChannel0 to r/m/t/f/b (and, in ES300 modes, gl_FragColor to
+// o/outColor, and in Geekest, gl_FragCoord to FC) wherever those identifiers
+// appear -- with no GLSL scope information, so if the shader *already* has
+// its own local variable/parameter named e.g. `r` for something unrelated
+// (a real, observed case: a raymarching shader's own grid-cell-size
+// variable), the rewrite doesn't fail loudly -- it silently merges two
+// different meanings under one name. GLSL variable shadowing means this
+// often still *compiles*, but produces visually wrong output wherever the
+// renamed uniform is referenced after the local variable's declaration
+// point (see unrewrite_twigl_shader's doc comment for the same, inherent
+// ambiguity in the reverse direction). This is not something a text-level
+// rewrite without full scope tracking can safely auto-resolve, so instead
+// of guessing, this surfaces the risk as a warning for the UI to show, so
+// the user can rename their own conflicting identifier before exporting.
+fn generate_free_identifier(input: &str, base: &str) -> String {
+    for i in 0u32.. {
+        let candidate = format!("{base}_{i}");
+        if !identifier_present(input, &candidate) {
+            return candidate;
+        }
+    }
+    unreachable!("identifier_present is finite-time; this loop always terminates well before u32 overflow")
+}
+
+// Automatically resolves every rename-target collision described above by
+// renaming the shader's own *pre-existing* conflicting identifier out of
+// the way (to a fresh, guaranteed-unused name, e.g. a local `r` variable
+// becomes `r_0`) before the uniform/output/coordinate substitution runs.
+// This is safe without any GLSL scope tracking: renaming a distinct
+// identifier to a name that appears nowhere else in the source never
+// changes what it refers to, and once it's out of the way there is no
+// longer any text-level ambiguity for the later substitution passes (which
+// rename by blind, scope-unaware text substitution) to trip over. Returns
+// the modified source plus a human-readable list of the renames performed
+// (for the UI to inform the user what changed), empty when none were
+// needed. Called automatically by rewrite_twigl_shader/rewrite_twigl_shader_mrt,
+// so every twigl export is collision-free by construction; also callable
+// directly for diagnostics/tests.
+pub fn resolve_rename_collisions(input: &str, mode: TwiglMode, es300: bool) -> (String, Vec<String>) {
+    let mut output = input.to_string();
+    let mut applied = Vec::new();
+
+    if !matches!(mode, TwiglMode::Classic) {
+        // Classic mode's targets (resolution/mouse/time/frame/backbuffer)
+        // are long, ordinary-looking English words -- a user's own local
+        // variable coincidentally sharing one of those exact names is far
+        // less likely, and this mode was never implicated in the observed
+        // bug. Scoped out to avoid noisy, unnecessary renames of common words.
+        const UNIFORM_TARGETS: &[(&str, &str)] = &[
+            ("iResolution", "r"),
+            ("iMouse", "m"),
+            ("iTime", "t"),
+            ("iFrame", "f"),
+            ("iChannel0", "b"),
+        ];
+        for (long_name, short_name) in UNIFORM_TARGETS {
+            if identifier_present(&output, long_name) && identifier_present(&output, short_name) {
+                let fresh = generate_free_identifier(&output, short_name);
+                output = replace_identifier(&output, short_name, &fresh);
+                applied.push(format!(
+                    "renamed your '{short_name}' to '{fresh}' (it would otherwise collide with the {long_name} uniform)"
+                ));
+            }
+        }
+    }
+
+    if es300 {
+        let out_name = es300_output_name(mode);
+        if identifier_present(&output, out_name) {
+            let fresh = generate_free_identifier(&output, out_name);
+            output = replace_identifier(&output, out_name, &fresh);
+            applied.push(format!(
+                "renamed your '{out_name}' to '{fresh}' (it would otherwise collide with the ES 3.00 output variable)"
+            ));
+        }
+    }
+
+    if matches!(mode, TwiglMode::Geekest) && identifier_present(&output, "FC") {
+        let fresh = generate_free_identifier(&output, "FC");
+        output = replace_identifier(&output, "FC", &fresh);
+        applied.push(format!(
+            "renamed your 'FC' to '{fresh}' (it would otherwise collide with Geekest's gl_FragCoord shorthand)"
+        ));
+    }
+
+    (output, applied)
+}
+
 // The single entry point the C++ shell should call for every twigl-related
 // output -- the live Export-panel preview, the budget badge, and the
 // clipboard "Copy for twigl.app" action all call this same function so they
@@ -473,10 +779,11 @@ pub fn rewrite_twigl_shader_full(
 #[cfg(test)]
 mod tests {
     use super::{
-        identifier_present, rewrite_es300_deprecated_texture_calls, rewrite_twigl_shader,
-        rewrite_twigl_shader_full, rewrite_twigl_shader_mrt, rewrite_twigl_uniforms,
-        twigl_backbuffer_and_sound_declarations, twigl_es300_header, twigl_export_uniform_names,
-        twigl_snippet, twigl_snippets, unrewrite_twigl_shader, TwiglMode,
+        identifier_present, normalize_mainimage_to_plain_main, resolve_rename_collisions,
+        rewrite_es300_deprecated_texture_calls, rewrite_twigl_shader, rewrite_twigl_shader_full,
+        rewrite_twigl_shader_mrt, rewrite_twigl_uniforms, twigl_backbuffer_and_sound_declarations,
+        twigl_es300_header, twigl_export_uniform_names, twigl_snippet, twigl_snippets,
+        unrewrite_twigl_shader, TwiglMode,
     };
 
     #[test]
@@ -843,6 +1150,196 @@ mod tests {
         assert_eq!(output, expected);
     }
 
+    // --- mainImage normalization (regression coverage for the bug where a
+    // genuine Shadertoy-style `void mainImage(out vec4 X, in vec2 Y){...}`
+    // source -- which is what this app's own Source tab actually requires,
+    // see ShaderRunner/default_shader.h -- was never unwrapped at all, so
+    // every downstream gl_FragColor/gl_FragCoord/iResolution substitution
+    // pass silently did nothing and the twigl export was just the untouched
+    // mainImage wrapper) -----------------------------------------------
+
+    #[test]
+    fn rewrite_unwraps_a_genuine_mainimage_shader_with_golfed_parameter_names() {
+        // Mirrors a real user report: mainImage's own out/in parameters
+        // golfed down to single letters, exactly as this app's own golfer
+        // would produce, referencing iResolution/iTime as normal.
+        let input = "void mainImage(out vec4 I,in vec2 B){vec2 C=(B-.5*iResolution.xy)/iResolution.y;float a=iTime*.6;I=vec4(C,a,1.);}";
+        let output = rewrite_twigl_shader(input, TwiglMode::Geekest, false);
+        assert!(!output.contains("mainImage"), "the mainImage wrapper must be fully unwrapped: {output}");
+        assert!(output.contains("FC.xy"), "the vec2 coordinate parameter must become FC.xy (not bare FC, which is vec4): {output}");
+        assert!(output.contains("gl_FragColor=vec4(C,a,1.);"), "the out parameter must become gl_FragColor: {output}");
+        assert!(output.contains("r.xy") && output.contains("r.y"), "iResolution must still shorten to r: {output}");
+        assert!(output.contains('t'), "iTime must still shorten to t: {output}");
+    }
+
+    #[test]
+    fn rewrite_unwraps_mainimage_for_es300_output_naming_too() {
+        let input = "void mainImage(out vec4 fragColor,in vec2 fragCoord){fragColor=vec4(fragCoord,0.,1.);}";
+        let output = rewrite_twigl_shader(input, TwiglMode::Classic, true);
+        assert_eq!(
+            output,
+            "#version 300 es\nout vec4 outColor;\nvoid main(){outColor=vec4(gl_FragCoord.xy,0.,1.);}"
+        );
+    }
+
+    #[test]
+    fn rewrite_leaves_helper_functions_declared_outside_mainimage_untouched() {
+        let input = "float helperFn(float x){return x*2.;}\nvoid mainImage(out vec4 I,in vec2 B){I=vec4(helperFn(iTime));}";
+        let output = rewrite_twigl_shader(input, TwiglMode::Geekest, false);
+        assert!(output.contains("float helperFn(float x){return x*2.;}"));
+        assert!(output.contains("gl_FragColor=vec4(helperFn(t));"));
+    }
+
+    #[test]
+    fn rewrite_is_a_no_op_normalization_when_mainimage_is_absent() {
+        // Already plain-`main`-style input (e.g. hand-written twigl-shorthand,
+        // or a second pass over already-unwrapped text) must be left exactly
+        // as every other rewrite pass already handles it.
+        let input = "void main(){gl_FragColor=vec4(1.0);}";
+        assert_eq!(rewrite_twigl_shader(input, TwiglMode::Classic, false), "void main(){gl_FragColor=vec4(1.0);}");
+    }
+
+    #[test]
+    fn unrewrite_always_rewraps_into_a_mainimage_signature_this_apps_source_tab_can_compile() {
+        // This app's Source tab (src/render/shader_runner.cpp) always wraps
+        // user source with its own `void main(){ mainImage(...); }` calling
+        // into a user-defined mainImage -- a plain `void main(){}` produced
+        // by Import would silently fail to compile (duplicate main, no
+        // mainImage to call). Covers every mode, since the bug applied to
+        // all of them equally.
+        for mode in [TwiglMode::Classic, TwiglMode::Geek, TwiglMode::Geeker, TwiglMode::Geekest] {
+            let twigl_text = rewrite_twigl_shader("void main(){gl_FragColor=vec4(1.0);}", mode, false);
+            let imported = unrewrite_twigl_shader(&twigl_text, mode);
+            assert!(
+                imported.contains("void mainImage(out vec4 fragColor,in vec2 fragCoord)"),
+                "{mode:?}: {imported}"
+            );
+            assert!(!imported.contains("void main("), "{mode:?}: {imported}");
+        }
+    }
+
+    #[test]
+    fn shadertoy_style_source_round_trips_through_export_and_import_semantically() {
+        // Full loop: genuine Shadertoy-style Source -> twigl export -> Import
+        // back into Source -> re-export -> must match the first export
+        // exactly, proving the mainImage unwrap/rewrap pair are true inverses
+        // of each other (not just individually plausible).
+        let original = "void mainImage(out vec4 fragColor,in vec2 fragCoord){vec2 uv=fragCoord.xy/iResolution.xy;fragColor=vec4(uv,sin(iTime),1.0);}";
+        for (mode, es300) in [
+            (TwiglMode::Classic, false),
+            (TwiglMode::Classic, true),
+            (TwiglMode::Geek, false),
+            (TwiglMode::Geekest, false),
+            (TwiglMode::Geekest, true),
+        ] {
+            let exported = rewrite_twigl_shader(original, mode, es300);
+            let imported = unrewrite_twigl_shader(&exported, mode);
+            let reexported = rewrite_twigl_shader(&imported, mode, es300);
+            assert_eq!(reexported, exported, "mode={mode:?} es300={es300}");
+        }
+    }
+
+    // --- Automatic rename-collision resolution (regression coverage for a
+    // real, user-reported case: a raymarching shader's own `r` local
+    // variable, used for grid cell size, silently merging with the
+    // iResolution->r rename and corrupting a later screen-space
+    // normalization). Per the user's explicit request, this is resolved
+    // automatically (the shader's own conflicting identifier is renamed out
+    // of the way) rather than merely flagged for the user to fix by hand. --
+
+    #[test]
+    fn auto_renames_a_local_identifier_that_collides_with_a_geek_family_uniform_target() {
+        // Mirrors the actual reported shader: iResolution used early, then
+        // a local `r` declared and used for something unrelated later.
+        let input = "vec2 C=(B-.5*iResolution.xy)/iResolution.y;vec3 r=vec3(1.8,1.8,2.2);vec3 k=floor(c/r);";
+        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geekest, false);
+        assert_eq!(applied.len(), 1);
+        assert!(applied[0].contains('r'));
+        assert!(applied[0].contains("iResolution"));
+        // The local variable's own declaration and every use of it must now
+        // share the SAME fresh name (not "r"), and "iResolution" must still
+        // be present, untouched, ready for the normal r-substitution pass
+        // that runs after this one.
+        assert!(output.contains("iResolution"));
+        assert!(output.contains("vec3 r_0=vec3(1.8,1.8,2.2);"));
+        assert!(output.contains("floor(c/r_0)"));
+        assert!(!identifier_present(&output, "r"));
+    }
+
+    #[test]
+    fn rewrite_twigl_shader_produces_collision_free_geekest_output_for_the_reported_shader() {
+        // End-to-end: the exported text must unambiguously use `r` for
+        // iResolution everywhere, with the original local variable renamed
+        // out of the way -- not a mix of both meanings under one name.
+        let input = "void mainImage(out vec4 I,in vec2 B){vec2 C=(B-.5*iResolution.xy)/iResolution.y;vec3 r=vec3(1.8,1.8,2.2);vec3 k=floor(C.xyy/r);I=vec4(k+C.xyy/iResolution.xy,1.);}";
+        let output = rewrite_twigl_shader(input, TwiglMode::Geekest, false);
+        assert!(output.contains("r_0"), "the local grid variable must survive under a fresh name: {output}");
+        // Every remaining bare `r` must mean iResolution: check the count of
+        // the *whole-word* "r" matches the number of original iResolution
+        // occurrences (2), not 0 and not mixed with the local variable's.
+        let bare_r_count = output.matches("r.xy").count() + output.matches("r);").count();
+        assert_eq!(bare_r_count, 2, "expected exactly the 2 original iResolution.xy/iResolution.y uses to become bare r: {output}");
+    }
+
+    #[test]
+    fn no_rename_needed_when_the_only_short_name_present_is_the_uniform_itself() {
+        let input = "vec2 C=(B-.5*iResolution.xy)/iResolution.y;";
+        assert!(resolve_rename_collisions(input, TwiglMode::Geekest, false).1.is_empty());
+    }
+
+    #[test]
+    fn no_renames_applied_for_classic_mode() {
+        // Classic mode's targets are long words (resolution/mouse/...), not
+        // single letters -- scoped out to avoid noisy, unnecessary renames.
+        let input = "vec2 C=(B-.5*iResolution.xy)/iResolution.y;float resolution=1.;";
+        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Classic, false);
+        assert!(applied.is_empty());
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn resolves_multiple_distinct_collisions_independently() {
+        let input = "float t=1.;float m=2.;vec4 x=vec4(iTime,iMouse.x,0.,1.);";
+        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geek, false);
+        assert_eq!(applied.len(), 2);
+        assert!(applied.iter().any(|w| w.contains('t') && w.contains("iTime")));
+        assert!(applied.iter().any(|w| w.contains('m') && w.contains("iMouse")));
+        assert!(output.contains("t_0=1.") || output.contains("t_0 = 1."));
+        assert!(output.contains("m_0=2.") || output.contains("m_0 = 2."));
+    }
+
+    #[test]
+    fn resolves_es300_output_name_collision_only_when_es300_is_active() {
+        let input = "void mainImage(out vec4 fragColor,in vec2 fragCoord){float o=1.;fragColor=vec4(o);}";
+        let normalized = normalize_mainimage_to_plain_main(input);
+        assert!(resolve_rename_collisions(&normalized, TwiglMode::Geekest, false).1.is_empty());
+        let (output, applied) = resolve_rename_collisions(&normalized, TwiglMode::Geekest, true);
+        assert_eq!(applied.len(), 1);
+        assert!(applied[0].contains('o'));
+        assert!(output.contains("o_0"));
+    }
+
+    #[test]
+    fn resolves_fc_collision_only_for_geekest_mode() {
+        let input = "float FC=1.;gl_FragColor=vec4(FC);";
+        assert!(resolve_rename_collisions(input, TwiglMode::Geek, false).1.is_empty());
+        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geekest, false);
+        assert_eq!(applied.len(), 1);
+        assert!(applied[0].contains("FC"));
+        assert!(output.contains("FC_0"));
+    }
+
+    #[test]
+    fn generated_fresh_names_never_collide_with_an_already_used_numbered_variant() {
+        // If the shader already happens to use "r_0" for something else,
+        // the generator must skip past it rather than reuse it.
+        let input = "vec2 C=(B-.5*iResolution.xy)/iResolution.y;float r_0=1.;float r=2.;float x=r+r_0;";
+        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geekest, false);
+        assert_eq!(applied.len(), 1);
+        assert!(output.contains("r_1"), "must skip the already-used r_0: {output}");
+        assert!(output.contains("float r_0=1.;"), "the pre-existing r_0 must survive untouched: {output}");
+    }
+
     // --- Phase 43.2 -- round-trip import (unrewrite_twigl_shader) --------
 
     #[test]
@@ -867,26 +1364,102 @@ mod tests {
         assert_eq!(roundtrip_geekest.trim_end(), geekest_trimmed);
     }
 
+    // --- ES300/MRT unrewrite (regression coverage for the previously-missing
+    // `#version 300 es` / `out vec4 ...;` structural reversal) -------------
+
+    #[test]
+    fn unrewrite_reverses_es300_single_target_header_and_output_name_for_classic_mode() {
+        let input = "#version 300 es\nout vec4 outColor;\nvoid main(){outColor=vec4(1.0);}";
+        let output = unrewrite_twigl_shader(input, TwiglMode::Classic);
+        assert!(!output.contains("#version 300 es"));
+        assert!(!output.contains("out vec4 outColor;"));
+        // Rewrapped into this app's Source-tab convention (see
+        // normalize_mainimage_to_plain_main/wrap_plain_main_as_mainimage's
+        // own doc comments): a plain `void main(){}` using gl_FragColor
+        // directly would never compile via ShaderRunner's own wrapping.
+        assert!(output.contains("void mainImage(out vec4 fragColor,in vec2 fragCoord){fragColor=vec4(1.0);}"));
+    }
+
+    #[test]
+    fn unrewrite_reverses_es300_single_target_header_and_output_name_for_geekest_mode() {
+        let input = "#version 300 es\nout vec4 o;\nvoid main(){o=vec4(t);}";
+        let output = unrewrite_twigl_shader(input, TwiglMode::Geekest);
+        assert!(!output.contains("#version 300 es"));
+        assert!(!output.contains("out vec4 o;"));
+        assert!(output.contains("void mainImage(out vec4 fragColor,in vec2 fragCoord){fragColor=vec4(iTime);}"));
+    }
+
+    #[test]
+    fn unrewrite_reverses_es300_mrt_header_but_leaves_output_names_untouched_for_classic_mode() {
+        let input = "#version 300 es\nlayout(location=0) out vec4 outColor0;\nlayout(location=1) out vec4 outColor1;\nvoid main(){outColor0=vec4(time);outColor1=vec4(1.0);}";
+        let output = unrewrite_twigl_shader(input, TwiglMode::Classic);
+        assert!(!output.contains("#version 300 es"));
+        assert!(!output.contains("layout(location="));
+        // MRT output names have no Shadertoy/gl_FragColor equivalent -- they
+        // must survive unrewriting exactly as they appeared in the input.
+        assert!(output.contains("outColor0=vec4(iTime);outColor1=vec4(1.0);"));
+        assert!(!output.contains("gl_FragColor"));
+    }
+
+    #[test]
+    fn unrewrite_reverses_es300_mrt_header_but_leaves_output_names_untouched_for_geekest_mode() {
+        let input = "#version 300 es\nlayout(location=0) out vec4 o0;\nlayout(location=1) out vec4 o1;\nvoid main(){o0=vec4(t);o1=vec4(1.0);}";
+        let output = unrewrite_twigl_shader(input, TwiglMode::Geekest);
+        assert!(!output.contains("#version 300 es"));
+        assert!(!output.contains("layout(location="));
+        assert!(output.contains("o0=vec4(iTime);o1=vec4(1.0);"));
+        assert!(!output.contains("gl_FragColor"));
+    }
+
+    #[test]
+    fn unrewrite_then_rewrite_round_trips_the_es300_fixture() {
+        // twigl_300es.glsl is the classic-mode ES300 rewrite of the shared
+        // source fixture (see twigl_300es_fixture_matches_the_classic_mode_es300_rewrite_of_the_shared_source_fixture
+        // above) -- round-tripping it through unrewrite -> rewrite must
+        // reproduce it exactly now that the ES300 header is actually reversed.
+        let es300_fixture = include_str!("../../fixtures/twigl_300es.glsl").replace("\r\n", "\n");
+        let trimmed = es300_fixture.trim_end();
+        let roundtrip = rewrite_twigl_shader(
+            &unrewrite_twigl_shader(trimmed, TwiglMode::Classic),
+            TwiglMode::Classic,
+            true,
+        );
+        assert_eq!(roundtrip.trim_end(), trimmed);
+    }
+
+    #[test]
+    fn unrewrite_then_rewrite_mrt_round_trips_a_two_target_geek_shader() {
+        let input = "#version 300 es\nlayout(location=0) out vec4 o0;\nlayout(location=1) out vec4 o1;\nvoid main(){o0=vec4(t,r,0.,1.);o1=vec4(m,0.,1.);}";
+        let unrewritten = unrewrite_twigl_shader(input, TwiglMode::Geek);
+        let roundtrip = rewrite_twigl_shader_mrt(&unrewritten, TwiglMode::Geek, 2);
+        assert_eq!(roundtrip, input);
+    }
+
     #[test]
     fn unrewrite_classic_reverses_every_uniform_including_backbuffer() {
         let input = "precision mediump float;\nuniform vec2 resolution;\nuniform float time;\nuniform vec2 mouse;\nuniform sampler2D backbuffer;\nvoid main(){vec2 uv=gl_FragCoord.xy/resolution.xy;vec4 bg=texture2D(backbuffer,uv);gl_FragColor=bg+vec4(uv,sin(time),1.0);}";
-        let expected = include_str!("../../fixtures/twigl_source.glsl").replace("\r\n", "\n");
-        assert_eq!(unrewrite_twigl_shader(input, TwiglMode::Classic), expected.trim_end());
+        // Not compared against fixtures/twigl_source.glsl (a plain-`main`-style
+        // fixture shared by the *forward*-direction tests below, which is
+        // still valid input there since normalize_mainimage_to_plain_main is
+        // a no-op on already-plain-main text) -- unrewrite's actual output
+        // convention is this app's Source-tab mainImage signature instead.
+        let expected = "precision mediump float;\nuniform vec2 iResolution;\nuniform float iTime;\nuniform vec2 iMouse;\nuniform sampler2D iChannel0;\nvoid mainImage(out vec4 fragColor,in vec2 fragCoord){vec2 uv=fragCoord.xy/iResolution.xy;vec4 bg=texture2D(iChannel0,uv);fragColor=bg+vec4(uv,sin(iTime),1.0);}";
+        assert_eq!(unrewrite_twigl_shader(input, TwiglMode::Classic), expected);
     }
 
     #[test]
     fn unrewrite_geekest_restores_the_void_main_wrapper_when_it_was_omitted() {
         let input = "gl_FragColor=vec4(1.0);";
         let output = unrewrite_twigl_shader(input, TwiglMode::Geekest);
-        assert!(output.contains("void main(){gl_FragColor=vec4(1.0);}"));
+        assert!(output.contains("void mainImage(out vec4 fragColor,in vec2 fragCoord){fragColor=vec4(1.0);}"));
     }
 
     #[test]
     fn unrewrite_geekest_keeps_the_existing_wrapper_when_a_helper_function_is_present() {
         let input = "float helperFn(float x){return x*2.;}\nvoid main(){gl_FragColor=vec4(helperFn(t));}";
         let output = unrewrite_twigl_shader(input, TwiglMode::Geekest);
-        // Must not be double-wrapped -- exactly one "void main(){" in the result.
-        assert_eq!(output.matches("void main(){").count(), 1);
+        // Must not be double-wrapped -- exactly one "void mainImage(" in the result.
+        assert_eq!(output.matches("void mainImage(").count(), 1);
         assert!(output.contains("float helperFn(float x){return x*2.;}"));
         assert!(output.contains("iTime"));
     }
@@ -895,8 +1468,10 @@ mod tests {
     fn unrewrite_geekest_reverses_fc_back_to_gl_fragcoord() {
         let input = "gl_FragColor=vec4(FC.xy,0.,1.);";
         let output = unrewrite_twigl_shader(input, TwiglMode::Geekest);
-        assert!(output.contains("gl_FragCoord.xy"));
+        // FC -> gl_FragCoord -> (rewrapped as the mainImage coordinate param) -> fragCoord.
+        assert!(output.contains("fragCoord.xy"));
         assert!(!identifier_present(&output, "FC"));
+        assert!(!identifier_present(&output, "gl_FragCoord"));
     }
 
     #[test]
@@ -912,12 +1487,22 @@ mod tests {
 
     #[test]
     fn unrewrite_only_declares_uniforms_that_are_actually_referenced() {
+        // iResolution/iMouse/iTime/iFrame are never reconstructed here at all
+        // (this app's own Source-tab compilation wrapper, ShaderRunner's
+        // kFragmentPrefix, always declares them itself -- redeclaring them in
+        // reconstructed Source would be a GLSL redefinition error). Only
+        // iChannel0 needs reconstructing, since nothing else declares it.
         let input = "gl_FragColor=vec4(t);";
         let output = unrewrite_twigl_shader(input, TwiglMode::Geekest);
-        assert!(output.contains("uniform float iTime;"));
+        assert!(!output.contains("uniform float iTime;"));
         assert!(!output.contains("iResolution"));
         assert!(!output.contains("iMouse"));
-        assert!(!output.contains("iChannel0"));
+        assert!(!output.contains("uniform sampler2D iChannel0;"));
+        assert!(output.contains("iTime"));
+
+        let input_with_channel = "gl_FragColor=texture2D(b,vec2(t));";
+        let output_with_channel = unrewrite_twigl_shader(input_with_channel, TwiglMode::Geekest);
+        assert!(output_with_channel.contains("uniform sampler2D iChannel0;"));
     }
 
     #[test]
@@ -928,7 +1513,7 @@ mod tests {
         // none existed in the (already-complete) input.
         let input = "void main(){gl_FragColor=vec4(t);}";
         let output = unrewrite_twigl_shader(input, TwiglMode::Geek);
-        assert_eq!(output, "void main(){gl_FragColor=vec4(iTime);}");
+        assert_eq!(output, "void mainImage(out vec4 fragColor,in vec2 fragCoord){fragColor=vec4(iTime);}");
     }
 
     #[test]

@@ -74,7 +74,13 @@ namespace
     constexpr int kTraceTabIndex = 4;
     constexpr int kStatsTabIndex = 5;
     constexpr int kGolfTipsTabIndex = 6;
-    constexpr int kTwiglExportTabIndex = 7;
+    // Looked up by name rather than hardcoded, unlike its siblings above --
+    // this exact tab's index has already drifted out of sync with
+    // win32_tab_strip.cpp's kTabLabels/kTabNames twice in the past (the
+    // "export tab never initialized" and "panel never destroyed" bugs), so
+    // it no longer relies on a magic number kept in sync by comment
+    // discipline alone. See roadmap.md P2 point 7.
+    const int kTwiglExportTabIndex = TabStrip::index_of("Twigl");
     constexpr int kAppearanceTabIndex = 8;
     constexpr int kAboutTabIndex = 9;
     constexpr int kInspectorWidth = 300;
@@ -221,6 +227,7 @@ namespace
         int active = g_tab_strip.active_index();
         if (active == kSourceTabIndex) { return &g_source_editor; }
         if (active == kGolfedTabIndex) { return &g_golfed_editor; }
+        if (active == kTwiglExportTabIndex) { return g_twigl_export_panel.preview_text_editor(); }
         return nullptr;
     }
 
@@ -401,6 +408,7 @@ namespace
         g_status_dot.tick();
         g_source_editor.set_focus(g_window_focused && g_tab_strip.active_index() == kSourceTabIndex);
         g_golfed_editor.set_focus(g_window_focused && g_tab_strip.active_index() == kGolfedTabIndex);
+        g_twigl_export_panel.set_preview_focus(g_window_focused && g_tab_strip.active_index() == kTwiglExportTabIndex);
         g_source_editor.tick();
         g_golfed_editor.tick();
         g_twigl_export_panel.tick();
@@ -521,13 +529,23 @@ namespace
 
             if (g_hint_text_format != nullptr)
             {
-                const wchar_t* mini_labels[3] = { L"Source", L"Golfed", L"Twigl" };
+                // An ES300 or MRT twigl export can never compile under this
+                // app's desktop-GL mini-preview context (see
+                // refresh_mini_twigl_preview's doc comment) -- the viewport
+                // just stays blank, indistinguishable from a genuine shader
+                // error unless the label says so. See roadmap.md P1 point 4.
+                bool twigl_preview_unavailable_by_design =
+                    g_twigl_export_panel.current_es300() || g_twigl_export_panel.current_mrt_targets() >= 2;
+                std::wstring twigl_label = twigl_preview_unavailable_by_design
+                    ? L"Twigl - ES 3.00/MRT: no local preview"
+                    : L"Twigl";
+                const std::wstring mini_labels[3] = { L"Source", L"Golfed", twigl_label };
                 for (int i = 0; i < 3; ++i)
                 {
                     float label_top = static_cast<float>(content_top + i * (kMiniSlotHeight + kMiniPreviewGap));
                     D2D1_RECT_F label_rect = D2D1::RectF(static_cast<float>(mini_x + 6), label_top,
                         static_cast<float>(mini_x + kMiniPreviewWidth), label_top + static_cast<float>(kMiniLabelHeight));
-                    g_render_target->DrawText(mini_labels[i], static_cast<UINT32>(wcslen(mini_labels[i])),
+                    g_render_target->DrawText(mini_labels[i].c_str(), static_cast<UINT32>(mini_labels[i].size()),
                         g_hint_text_format, label_rect, g_brushes.text_secondary);
                 }
             }
@@ -679,14 +697,16 @@ namespace
         g_mini_twigl_gl_ready = !reconstructed.empty() && g_mini_twigl_runner.compile(reconstructed, mini_twigl_error);
     }
 
-    // ROADMAP.md/roadmap_twigl.md Phase 43.3 -- always reserves the twigl
-    // snippet names (PI, hsv, rotate2D, ...) from the golfer's generated
-    // short-name space, on top of whatever the user typed in the Protected
-    // Names field, so a snippet inserted later can never collide with an
-    // identifier the golfer already renamed to that same short name. See
-    // twigl_reserved_snippet_names_csv()'s own doc comment
-    // (win32_twigl_export_panel.h) for why this deliberately does NOT also
-    // reserve twigl's single-character uniform names.
+    // Reserves the twigl snippet names (PI, hsv, rotate2D, ...) *and*, when
+    // the Twigl panel's currently selected mode is Geek/Geeker/Geekest, its
+    // active single-character uniform/output names (r/m/t/f/b/s/o/o0/o1/FC)
+    // from the golfer's generated short-name space, on top of whatever the
+    // user typed in the Protected Names field. Without this, the golfer was
+    // free to rename an unrelated local identifier to e.g. "r" or "t", which
+    // the subsequent twigl uniform rewrite (iResolution->r, iTime->t, ...)
+    // would then silently collide with, corrupting the exported/previewed
+    // Twigl code. Classic mode uses long names so it's excluded (see
+    // Win32TwiglExportPanel::reserved_uniform_names_csv()).
     std::string effective_protected_names_for_golf()
     {
         std::string combined = g_golf_controls.protected_names();
@@ -695,6 +715,13 @@ namespace
             combined += ",";
         }
         combined += twigl_reserved_snippet_names_csv();
+
+        std::string twigl_uniforms = g_twigl_export_panel.reserved_uniform_names_csv();
+        if (!twigl_uniforms.empty())
+        {
+            combined += ",";
+            combined += twigl_uniforms;
+        }
         return combined;
     }
 
@@ -919,6 +946,8 @@ namespace
         {
             g_source_editor.set_text_utf8(std::string(unrewritten));
             ushader_free_string(unrewritten);
+            recompile_from_editor();
+            g_twigl_export_panel.discard_preview_edits();
             show_status_toast(L"Imported into Source");
             layout_chrome(hwnd);
         }
@@ -1791,7 +1820,15 @@ namespace
             {
                 SetFocus(hwnd);
                 g_twigl_export_panel.on_mouse_down(x, y);
-                refresh_mini_twigl_preview();
+                // Only recompile the mini-preview viewport when the click
+                // actually changed the panel's preview text (mode/ES300/MRT/
+                // backbuffer/sound toggles, or an Import consuming pasted
+                // text) -- Copy and snippet-insert clicks don't touch it, so
+                // recompiling for them every time was wasted work.
+                if (g_twigl_export_panel.consume_mini_preview_refresh_flag())
+                {
+                    refresh_mini_twigl_preview();
+                }
                 std::string snippet_source;
                 if (g_twigl_export_panel.take_pending_snippet_insert(snippet_source))
                 {
@@ -1818,8 +1855,13 @@ namespace
                     // ROADMAP.md/roadmap_twigl.md Phase 43.2 -- replaces the
                     // Source editor's contents wholesale (this is a full
                     // shader reconstruction, not a snippet to merge into
-                    // whatever is already there).
+                    // whatever is already there). Recompile immediately
+                    // (matching the "Reset to default shader" convention)
+                    // so the Golfed/Twigl views actually reflect the
+                    // imported code instead of going stale until the next
+                    // manual "Run golf".
                     g_source_editor.set_text_utf8(import_source);
+                    recompile_from_editor();
                     show_status_toast(L"Imported into Source");
                     layout_chrome(hwnd);
                 }
@@ -1868,10 +1910,9 @@ namespace
             {
                 g_trace_view.on_mouse_wheel(GET_WHEEL_DELTA_WPARAM(wparam));
             }
-            else if (g_tab_strip.active_index() == kTwiglExportTabIndex)
-            {
-                g_twigl_export_panel.on_mouse_wheel(GET_WHEEL_DELTA_WPARAM(wparam));
-            }
+            // kTwiglExportTabIndex is no longer handled here: active_editor()
+            // now returns the Twigl preview box for that tab, so the branch
+            // above already forwards the wheel event to it.
             else if (g_tab_strip.active_index() == kGolfTipsTabIndex)
             {
                 g_golf_tips_panel.on_mouse_wheel(GET_WHEEL_DELTA_WPARAM(wparam));

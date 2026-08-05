@@ -39,5 +39,6 @@ pub use iq::{
 };
 pub use twigl::{
     rewrite_twigl_shader, rewrite_twigl_shader_mrt, rewrite_twigl_uniforms, twigl_es300_header,
-    twigl_export_uniform_names, twigl_snippet, twigl_snippets, TwiglMode, TwiglSnippet,
+    resolve_rename_collisions, twigl_export_uniform_names, twigl_snippet, twigl_snippets,
+    TwiglMode, TwiglSnippet,
 };
