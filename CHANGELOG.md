@@ -5,6 +5,17 @@ application.
 
 ## [Unreleased]
 
+## [4.3.2] - 2026-08-08
+
+### Fixed
+
+- The **Viewport** tab still showed the Source/Golfed/Twigl mini
+  previews next to the live viewport, duplicating what those three
+  panels already show on their own tabs and leaving the main viewport
+  needlessly cramped. The Viewport tab now shows only the live
+  viewport, expanded to fill the space the mini previews used to
+  occupy; the mini previews are unaffected on every other tab.
+
 ## [4.3.1] - 2026-08-08
 
 ### Fixed

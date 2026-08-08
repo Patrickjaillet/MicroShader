@@ -371,28 +371,37 @@ namespace
         g_apply_harder_button.layout(main_width - 176, content_top + 8, 168, 24);
         g_formatted_view_button.layout(main_width - 132, content_top + 8, 120, 24);
 
+        bool on_viewport_tab = g_tab_strip.active_index() == kViewportTabIndex;
+        // On the Viewport tab, the Source/Golfed/Twigl mini previews are
+        // redundant with the full-size live viewport, so they're hidden and
+        // the viewport expands to fill the space they would otherwise take.
+        int viewport_width = on_viewport_tab ? (window_width - kInspectorWidth) : main_width;
         if (g_viewport.hwnd() != nullptr)
         {
-            MoveWindow(g_viewport.hwnd(), 0, content_top, main_width, content_height, TRUE);
-            ShowWindow(g_viewport.hwnd(), g_tab_strip.active_index() == kViewportTabIndex ? SW_SHOW : SW_HIDE);
+            MoveWindow(g_viewport.hwnd(), 0, content_top, viewport_width, content_height, TRUE);
+            ShowWindow(g_viewport.hwnd(), on_viewport_tab ? SW_SHOW : SW_HIDE);
         }
         int mini_x = window_width - kInspectorWidth - kMiniPreviewWidth;
+        int mini_show = on_viewport_tab ? SW_HIDE : SW_SHOW;
         if (g_mini_source_viewport.hwnd() != nullptr)
         {
             MoveWindow(g_mini_source_viewport.hwnd(), mini_x, content_top + kMiniLabelHeight,
                 kMiniPreviewWidth, kMiniPreviewHeight, TRUE);
+            ShowWindow(g_mini_source_viewport.hwnd(), mini_show);
         }
         if (g_mini_golfed_viewport.hwnd() != nullptr)
         {
             MoveWindow(g_mini_golfed_viewport.hwnd(), mini_x,
                 content_top + (kMiniSlotHeight + kMiniPreviewGap) + kMiniLabelHeight,
                 kMiniPreviewWidth, kMiniPreviewHeight, TRUE);
+            ShowWindow(g_mini_golfed_viewport.hwnd(), mini_show);
         }
         if (g_mini_twigl_viewport.hwnd() != nullptr)
         {
             MoveWindow(g_mini_twigl_viewport.hwnd(), mini_x,
                 content_top + (kMiniSlotHeight + kMiniPreviewGap) * 2 + kMiniLabelHeight,
                 kMiniPreviewWidth, kMiniPreviewHeight, TRUE);
+            ShowWindow(g_mini_twigl_viewport.hwnd(), mini_show);
         }
     }
 
@@ -522,6 +531,10 @@ namespace
             g_golf_controls.paint(g_render_target, g_brushes);
 
             int mini_x = window_width - kInspectorWidth - kMiniPreviewWidth;
+            // Hidden on the Viewport tab (see layout_chrome): the mini
+            // previews are redundant with the full-size live viewport there.
+            if (g_tab_strip.active_index() != kViewportTabIndex)
+            {
             D2D1_RECT_F mini_bg = D2D1::RectF(static_cast<float>(mini_x),
                 static_cast<float>(content_top), static_cast<float>(window_width - kInspectorWidth),
                 static_cast<float>(content_top + kMiniColumnHeight));
@@ -548,6 +561,7 @@ namespace
                     g_render_target->DrawText(mini_labels[i].c_str(), static_cast<UINT32>(mini_labels[i].size()),
                         g_hint_text_format, label_rect, g_brushes.text_secondary);
                 }
+            }
             }
         }
 
