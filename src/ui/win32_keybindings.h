@@ -19,6 +19,7 @@ struct Win32Keybindings
     Win32KeyChord new_tab;
     Win32KeyChord open_file;
     Win32KeyChord save_file;
+    Win32KeyChord save_file_as;
     Win32KeyChord close_tab;
     Win32KeyChord twigl_export_toggle;
 };

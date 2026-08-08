@@ -10,6 +10,7 @@
 #include "win32_appearance_settings.h"
 #include "theme_tokens.h"
 #include "../platform/utf8.h"
+#include "../platform/accessibility_core.h"
 
 bool Win32TraceView::create(ID2D1RenderTarget* render_target, IDWriteFactory* dwrite_factory)
 {
@@ -184,6 +185,10 @@ void Win32TraceView::paint(ID2D1RenderTarget* render_target, const ThemeBrushes&
                 ? D2D1::ColorF(tokens::text_primary.x, tokens::text_primary.y, tokens::text_primary.z)
                 : D2D1::ColorF(tokens::text_disabled.x, tokens::text_disabled.y, tokens::text_disabled.z));
             render_target->DrawText(label.c_str(), static_cast<UINT32>(label.size()), text_format, text_rect, dynamic_brush);
+
+            accessibility_register_toggle(step.pass_name.c_str(), AccessibleRole::Button,
+                header_rect.left, header_rect.top, header_rect.right - header_rect.left, header_rect.bottom - header_rect.top,
+                true, expanded_index == row.step_index);
         }
 
         if (expanded_index == row.step_index)

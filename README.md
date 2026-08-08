@@ -302,8 +302,9 @@ The **Appearance** tab lets you adjust:
 
 Most interactive controls (buttons, tabs, checkboxes, sliders) in µShader
 are exposed to Windows screen readers (such as Narrator) with a proper
-name, role, and live state. Coverage is not yet complete for Diff, Trace,
-Stats, Keybindings, Command Palette and Minimap panels.
+name, role, and live state, including the Diff, Trace, Stats, and
+Command Palette panels. Coverage is not yet complete for the Keybindings
+and Minimap panels.
 
 ## License
 

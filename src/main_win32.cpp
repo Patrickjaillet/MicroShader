@@ -1440,7 +1440,12 @@ namespace
         }
     }
 
-    void save_file_action(HWND hwnd)
+    // Always prompts for a destination, regardless of whether the active
+    // document already has a known path -- bound to Ctrl+Shift+S ("Save
+    // as..."). save_file_action (Ctrl+S, below) is the "just save it"
+    // counterpart that only falls back to this dialog for a document that
+    // has never been saved.
+    void save_file_as_action(HWND hwnd)
     {
         std::optional<std::string> path = show_save_file_dialog_hwnd(hwnd, kGlslFilter, L"glsl", L"shader.glsl");
         if (path.has_value())
@@ -1456,6 +1461,19 @@ namespace
         }
     }
 
+    void save_file_action(HWND hwnd)
+    {
+        if (g_active_document < 0 || g_active_document >= static_cast<int>(g_documents.size())
+            || g_documents[static_cast<std::size_t>(g_active_document)].file_path.empty())
+        {
+            save_file_as_action(hwnd);
+            return;
+        }
+        const std::string& path = g_documents[static_cast<std::size_t>(g_active_document)].file_path;
+        write_utf8_file(path, g_source_editor.text_utf8());
+        add_recent_file(path);
+    }
+
     void open_command_palette_for(HWND hwnd)
     {
         std::vector<PaletteCommand> commands = {
@@ -1469,12 +1487,15 @@ namespace
             {"Switch to tab: About", [hwnd]() { switch_tab(hwnd, kAboutTabIndex); }},
             {"Switch to tab: Twigl export", [hwnd]() { switch_tab(hwnd, kTwiglExportTabIndex); }},
             {"Run golf (recompile)", [hwnd]() { recompile_from_editor(); layout_chrome(hwnd); }},
+            {"Golf harder", [hwnd]() { run_golf_harder(hwnd); layout_chrome(hwnd); }},
+            {"Toggle Deep search", [hwnd]() { g_deep_search_enabled = !g_deep_search_enabled; }},
             {"Reset to default shader", [hwnd]() { g_source_editor.set_text_utf8(kDefaultShaderSource); recompile_from_editor(); layout_chrome(hwnd); }},
             {"Toggle Formatted view", [hwnd]() { g_formatted_view = !g_formatted_view; refresh_golfed_view(); layout_chrome(hwnd); }},
             {"Toggle Compare mode", [hwnd]() { g_compare_mode = !g_compare_mode; switch_tab(hwnd, kViewportTabIndex); }},
             {"Switch to tab: Golf Tips", [hwnd]() { switch_tab(hwnd, kGolfTipsTabIndex); }},
             {"Open file...", [hwnd]() { open_file_action(hwnd); }},
-            {"Save as...", [hwnd]() { save_file_action(hwnd); }},
+            {"Save", [hwnd]() { save_file_action(hwnd); }},
+            {"Save as...", [hwnd]() { save_file_as_action(hwnd); }},
             {"New document", [hwnd]() { new_document_action(hwnd); }},
             {"Close current document", [hwnd]() { close_document_action(hwnd, g_active_document); }},
             {"Copy as Shadertoy", []() { copy_as_shadertoy_action(); }},
@@ -2015,6 +2036,11 @@ namespace
             if (win32_chord_matches(g_keybindings.open_file, wparam, ctrl_held, shift_held, alt_held))
             {
                 open_file_action(hwnd);
+                return 0;
+            }
+            if (win32_chord_matches(g_keybindings.save_file_as, wparam, ctrl_held, shift_held, alt_held))
+            {
+                save_file_as_action(hwnd);
                 return 0;
             }
             if (win32_chord_matches(g_keybindings.save_file, wparam, ctrl_held, shift_held, alt_held))

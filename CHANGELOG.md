@@ -5,7 +5,26 @@ application.
 
 ## [Unreleased]
 
-## [4.3.2] - 2026-08-08
+## [4.3.3] - 2026-08-08
+
+### Fixed
+
+- **Ctrl+S** always opened a "Save as..." dialog, even for a document
+  already saved to a known path, and **Ctrl+Shift+S** ("Save As", as
+  documented in the README) wasn't bound to anything. Ctrl+S now saves
+  silently to the document's existing path (falling back to the
+  dialog only for a never-saved document), and Ctrl+Shift+S is a real,
+  separate "Save as..." binding that always prompts.
+- **Golf harder** and **Toggle Deep search** were only reachable by
+  clicking their inspector buttons; they're now in the command
+  palette (Ctrl+Shift+P) like every other action.
+- The **Diff**, **Trace**, and **Stats** tabs, and the command palette
+  itself, exposed no content to Windows screen readers (Narrator).
+  They now register their text/rows with the app's UI Automation
+  provider (trace steps as expandable/collapsible items, palette
+  results as selectable items, diff/stats content as readable text).
+  Keybindings and Minimap remain the last two panels without
+  accessibility coverage.
 
 ### Fixed
 

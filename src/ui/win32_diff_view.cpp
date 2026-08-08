@@ -10,6 +10,9 @@
 #include "win32_appearance_settings.h"
 #include "theme_tokens.h"
 #include "../platform/utf8.h"
+#include "../platform/accessibility_core.h"
+
+#include <cstdio>
 
 bool Win32DiffView::create(ID2D1RenderTarget* render_target, IDWriteFactory* dwrite_factory)
 {
@@ -128,6 +131,19 @@ void Win32DiffView::paint(ID2D1RenderTarget* render_target, const ThemeBrushes& 
     D2D1_RECT_F bg_rect = D2D1::RectF(static_cast<float>(origin_x), static_cast<float>(origin_y),
         static_cast<float>(origin_x + width_px), static_cast<float>(origin_y + height_px));
     render_target->FillRectangle(bg_rect, brushes.bg_panel);
+
+    int added = 0;
+    int removed = 0;
+    for (const DiffSpan& span : spans)
+    {
+        if (span.kind == DiffSpanKind::Added) { added++; }
+        else if (span.kind == DiffSpanKind::Removed) { removed++; }
+    }
+    char summary[96];
+    std::snprintf(summary, sizeof(summary), "Diff view: %d span(s) added, %d span(s) removed", added, removed);
+    accessibility_register(summary, AccessibleRole::Text,
+        static_cast<float>(origin_x), static_cast<float>(origin_y),
+        static_cast<float>(width_px), static_cast<float>(height_px), true);
 
     if (dynamic_brush == nullptr || text_format == nullptr)
     {

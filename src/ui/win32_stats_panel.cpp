@@ -11,6 +11,7 @@
 #include "theme_tokens.h"
 #include "budget_presets.h"
 #include "../platform/utf8.h"
+#include "../platform/accessibility_core.h"
 
 namespace
 {
@@ -82,6 +83,8 @@ void Win32StatsPanel::paint(ID2D1RenderTarget* render_target, const ThemeBrushes
         std::wstring wide = utf8_to_wide(text);
         D2D1_RECT_F rect = D2D1::RectF(left, y, right, y + row_height);
         render_target->DrawText(wide.c_str(), static_cast<UINT32>(wide.size()), text_format, rect, color_brush);
+        accessibility_register(text.c_str(), AccessibleRole::Text,
+            rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, true);
         y += row_height;
     };
 
@@ -137,6 +140,8 @@ void Win32StatsPanel::paint(ID2D1RenderTarget* render_target, const ThemeBrushes
         D2D1_RECT_F rect = D2D1::RectF(left, y, column2_x - 8.0f, y + row_height);
         dynamic_brush->SetColor(D2D1::ColorF(tokens::text_primary.x, tokens::text_primary.y, tokens::text_primary.z));
         render_target->DrawText(wide.c_str(), static_cast<UINT32>(wide.size()), text_format, rect, dynamic_brush);
+        accessibility_register(buffer, AccessibleRole::Text,
+            rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, true);
         y += row_height;
     }
     y = column_top;
@@ -147,6 +152,8 @@ void Win32StatsPanel::paint(ID2D1RenderTarget* render_target, const ThemeBrushes
         D2D1_RECT_F rect = D2D1::RectF(column2_x, y, right, y + row_height);
         dynamic_brush->SetColor(D2D1::ColorF(tokens::text_primary.x, tokens::text_primary.y, tokens::text_primary.z));
         render_target->DrawText(wide.c_str(), static_cast<UINT32>(wide.size()), text_format, rect, dynamic_brush);
+        accessibility_register(buffer, AccessibleRole::Text,
+            rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, true);
         y += row_height;
     }
 
@@ -158,6 +165,8 @@ void Win32StatsPanel::paint(ID2D1RenderTarget* render_target, const ThemeBrushes
     dynamic_brush->SetColor(D2D1::ColorF(tokens::text_primary.x, tokens::text_primary.y, tokens::text_primary.z));
     std::wstring est_wide = utf8_to_wide(buffer);
     render_target->DrawText(est_wide.c_str(), static_cast<UINT32>(est_wide.size()), text_format, est_rect, dynamic_brush);
+    accessibility_register(buffer, AccessibleRole::Text,
+        est_rect.left, est_rect.top, est_rect.right - est_rect.left, est_rect.bottom - est_rect.top, true);
     y += row_height;
 
     std::size_t preset_count = 0;
@@ -193,6 +202,8 @@ void Win32StatsPanel::paint(ID2D1RenderTarget* render_target, const ThemeBrushes
             std::wstring wide = utf8_to_wide(badge_text);
             D2D1_RECT_F rect = D2D1::RectF(left, y, right, y + row_height);
             render_target->DrawText(wide.c_str(), static_cast<UINT32>(wide.size()), text_format, rect, dynamic_brush);
+            accessibility_register(badge_text, AccessibleRole::Text,
+                rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, true);
             y += row_height;
         };
 

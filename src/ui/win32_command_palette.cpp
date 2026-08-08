@@ -10,6 +10,9 @@
 #include "fuzzy_match.h"
 #include "theme_tokens.h"
 #include "../platform/utf8.h"
+#include "../platform/accessibility_core.h"
+
+#include <cstdio>
 
 bool Win32CommandPalette::create(ID2D1RenderTarget* render_target, IDWriteFactory* dwrite_factory)
 {
@@ -259,6 +262,12 @@ void Win32CommandPalette::paint(ID2D1RenderTarget* render_target, const ThemeBru
         : D2D1::ColorF(tokens::text_primary.x, tokens::text_primary.y, tokens::text_primary.z));
     render_target->DrawText(display_text.c_str(), static_cast<UINT32>(display_text.size()), query_format, query_rect, dynamic_brush);
 
+    char query_name[288];
+    std::snprintf(query_name, sizeof(query_name), "Command palette search: %s",
+        query.empty() ? "(empty)" : query.c_str());
+    accessibility_register(query_name, AccessibleRole::Text,
+        query_rect.left, query_rect.top, query_rect.right - query_rect.left, query_rect.bottom - query_rect.top, true);
+
     if (caret_blink_on)
     {
         float caret_x = query_rect.left + static_cast<float>(query.size()) * 8.5f;
@@ -292,9 +301,14 @@ void Win32CommandPalette::paint(ID2D1RenderTarget* render_target, const ThemeBru
         }
 
         D2D1_RECT_F label_rect = D2D1::RectF(row_rect.left + 12.0f, row_rect.top, row_rect.right - 12.0f, row_rect.bottom);
-        std::wstring label = utf8_to_wide(commands[static_cast<size_t>(command_index)].label);
+        const std::string& label_utf8 = commands[static_cast<size_t>(command_index)].label;
+        std::wstring label = utf8_to_wide(label_utf8);
         dynamic_brush->SetColor(D2D1::ColorF(tokens::text_primary.x, tokens::text_primary.y, tokens::text_primary.z));
         render_target->DrawText(label.c_str(), static_cast<UINT32>(label.size()), item_format, label_rect, dynamic_brush);
+
+        accessibility_register_toggle(label_utf8.c_str(), AccessibleRole::Button,
+            row_rect.left, row_rect.top, row_rect.right - row_rect.left, row_rect.bottom - row_rect.top,
+            true, filtered_pos == selected);
     }
 
     if (filtered_indices.empty())

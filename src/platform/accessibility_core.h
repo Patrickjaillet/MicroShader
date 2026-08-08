@@ -7,6 +7,9 @@ enum class AccessibleRole
 {
     Button,
     CheckBox,
+    // Read-only informational content (a summary of a panel's current
+    // state) that isn't itself clickable -- e.g. the Diff/Stats panels.
+    Text,
 };
 
 void accessibility_init_hwnd(HWND hwnd);

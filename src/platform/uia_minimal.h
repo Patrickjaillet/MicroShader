@@ -103,5 +103,6 @@ constexpr PROPERTYID UIA_IsKeyboardFocusablePropertyId = 30009;
 constexpr PROPERTYID UIA_HasKeyboardFocusPropertyId = 30008;
 constexpr CONTROLTYPEID UIA_ButtonControlTypeId = 50000;
 constexpr CONTROLTYPEID UIA_CheckBoxControlTypeId = 50002;
+constexpr CONTROLTYPEID UIA_TextControlTypeId = 50020;
 constexpr CONTROLTYPEID UIA_WindowControlTypeId = 50032;
 constexpr PATTERNID UIA_TogglePatternId = 10015;

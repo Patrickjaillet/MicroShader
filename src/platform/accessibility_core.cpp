@@ -27,6 +27,8 @@ namespace
         {
             case AccessibleRole::CheckBox:
                 return UIA_CheckBoxControlTypeId;
+            case AccessibleRole::Text:
+                return UIA_TextControlTypeId;
             case AccessibleRole::Button:
             default:
                 return UIA_ButtonControlTypeId;
