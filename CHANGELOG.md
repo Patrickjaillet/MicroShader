@@ -5,6 +5,44 @@ application.
 
 ## [Unreleased]
 
+## [4.4.0] - 2026-08-08
+
+### Added
+
+- New **value sliders panel**, on the left edge of the Source and
+  Viewport tabs: every float literal in your shader (`1.0`, `0.5`,
+  `.25`, `1e-2`, ...) automatically gets its own draggable slider, no
+  annotation needed. Each row shows a short snippet of the line the
+  value comes from (so several `1.0`s in different places stay
+  distinguishable). Dragging a slider rewrites that exact number in
+  the Source editor in place and recompiles the live viewport as you
+  drag, so lighting, colors, thresholds, speeds, and any other
+  constant can be tuned while watching the result update in real
+  time. A slider's range is scaled to its starting value (`0` gets
+  `[-1, 1]`; a positive value `x` gets `[0, 2x]`; a negative value `x`
+  gets a symmetric `[2x, -2x]`). Bare integers (loop bounds, array
+  sizes, indices) and numbers inside comments are left alone.
+
+### Fixed
+
+- The very first version of the sliders panel's drag handling ran the
+  full recompile (Rust golf engine + up to 4 GL shader compiles)
+  synchronously from the `WM_MOUSEMOVE` handler, which runs *before*
+  that frame's repaint inside the message loop's drain step. A slow
+  recompile there stalled the drain loop while the OS kept queueing
+  more mouse-move messages, so the thumb visibly froze while
+  dragging. The recompile is now driven once per rendered frame
+  instead (throttled, and always guaranteed to run between two
+  paints), never blocking the message loop.
+- Releasing a slider drag re-synced the panel's rows from the newly
+  edited source *before* telling the panel the drag had ended, which
+  made it recompute that row's range from the value just dragged to
+  -- and since a positive value always sits at exactly the midpoint
+  of its own auto-computed range, every slider snapped straight back
+  to the center the instant you let go, regardless of where you'd
+  dragged it. Reordered so the final commit happens while the panel
+  still reports the drag as in progress.
+
 ## [4.3.4] - 2026-08-08
 
 ### Fixed

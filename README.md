@@ -13,6 +13,7 @@ confirm the shrunk version still looks exactly the same.
 - [Starting the app](#starting-the-app)
 - [The window layout](#the-window-layout)
 - [Writing or opening a shader](#writing-or-opening-a-shader)
+- [Live-tweaking values with the sliders panel](#live-tweaking-values-with-the-sliders-panel)
 - [Golfing your shader](#golfing-your-shader)
 - [Reading the result](#reading-the-result)
   - [Golfed tab](#golfed-tab)
@@ -81,6 +82,11 @@ Twigl Export settings (ES 3.00 or MRT) produce a shader this desktop
 viewport can't run — that's a known WebGL2-only limitation of those
 two options, not a bug.
 
+On the Source and Viewport tabs specifically, a second panel on the
+left edge holds a slider for every numeric value in your shader — see
+[Live-tweaking values with the sliders
+panel](#live-tweaking-values-with-the-sliders-panel).
+
 ## Writing or opening a shader
 
 The **Source** tab is a text editor with GLSL syntax highlighting
@@ -101,6 +107,26 @@ for confirmation first.
 If the shader fails to compile, the offending line is highlighted
 directly in the Source editor and the title-bar status indicator turns
 red; a successful compile shows a brief green pulse.
+
+## Live-tweaking values with the sliders panel
+
+On the **Source** and **Viewport** tabs, a panel on the left turns
+every float literal in your shader (`1.0`, `0.5`, `.25`, `1e-2`, ...)
+into a draggable slider — no manual annotation needed. Each row shows
+a short snippet of the line the value comes from (so several `1.0`s
+in different places stay distinguishable) and its current value.
+Dragging a slider rewrites that exact number in the Source editor in
+place and recompiles the live viewport as you drag, so you can tune
+lighting, colors, thresholds, speeds, and any other constant while
+watching the result update in real time.
+
+A slider's range is scaled to its starting value: `0` gets `[-1, 1]`,
+a positive value `x` gets `[0, 2x]`, and a negative value `x` gets a
+symmetric `[2x, -2x]` (so it can still cross zero). Bare integers
+(loop bounds, array sizes, indices) are left alone, and so is a
+number inside a `//` or `/* */` comment. A sign (`-`) written directly
+before a literal is not itself part of the slider — only the digits
+after it are.
 
 ## Golfing your shader
 

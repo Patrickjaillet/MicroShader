@@ -31,6 +31,7 @@
 #include "ui/win32_twigl_export_panel.h"
 #include "ui/golf_tips_panel.h"
 #include "ui/win32_tool_button.h"
+#include "ui/win32_value_sliders_panel.h"
 #include "ui/theme_tokens.h"
 #include "ui/glsl_format.h"
 #include "ui/golf_trace.h"
@@ -84,6 +85,12 @@ namespace
     constexpr int kAppearanceTabIndex = 8;
     constexpr int kAboutTabIndex = 9;
     constexpr int kInspectorWidth = 300;
+    // Left-side counterpart to kInspectorWidth: turns every float literal
+    // in the current shader into a draggable slider. Shown only on the
+    // Source and Viewport tabs (see value_sliders_panel_visible below) --
+    // elsewhere there's either no source text on screen to tie sliders to,
+    // or a dedicated panel of its own already occupies that space.
+    constexpr int kValueSlidersWidth = 260;
     constexpr int kRunGolfButtonHeight = 32;
     constexpr int kMiniPreviewWidth = 420;
     constexpr int kMiniPreviewHeight = 236;
@@ -167,6 +174,15 @@ namespace
     bool g_deep_search_enabled = false;
     Win32ToolButton g_apply_harder_button;
     Win32ToolButton g_formatted_view_button;
+    Win32ValueSlidersPanel g_value_sliders_panel;
+    bool g_value_slider_dragging = false;
+    // Throttles the (relatively expensive: golf FFI + up to 4 shader
+    // recompiles) work recompile_from_editor() does so a slider drag
+    // doesn't call it on every single WM_MOUSEMOVE tick -- the thumb/value
+    // label still update every tick regardless, only the editor text/GL
+    // recompile is throttled. Always applied unthrottled on mouse-down and
+    // mouse-up so a click always takes effect immediately.
+    std::chrono::steady_clock::time_point g_last_value_slider_apply;
     WglViewportHost g_viewport;
     ShaderRunner g_shader_runner;
     ShaderRunner g_golfed_runner;
@@ -229,6 +245,12 @@ namespace
         if (active == kGolfedTabIndex) { return &g_golfed_editor; }
         if (active == kTwiglExportTabIndex) { return g_twigl_export_panel.preview_text_editor(); }
         return nullptr;
+    }
+
+    bool value_sliders_panel_visible()
+    {
+        int active = g_tab_strip.active_index();
+        return active == kSourceTabIndex || active == kViewportTabIndex;
     }
 
     void refresh_golfed_view()
@@ -335,12 +357,16 @@ namespace
             main_width = 0;
         }
 
-        int source_width = main_width;
+        bool show_value_sliders = value_sliders_panel_visible();
+        g_value_sliders_panel.layout(0, content_top, kValueSlidersWidth, content_height);
+
+        int source_x = (g_tab_strip.active_index() == kSourceTabIndex && show_value_sliders) ? kValueSlidersWidth : 0;
+        int source_width = main_width - source_x;
         if (minimap_should_render(g_source_editor.line_count(), g_minimap_settings))
         {
             source_width -= static_cast<int>(g_minimap_settings.width);
         }
-        g_source_editor.layout(0, content_top, source_width, content_height);
+        g_source_editor.layout(source_x, content_top, source_width, content_height);
 
         int golfed_width = main_width;
         if (minimap_should_render(g_golfed_editor.line_count(), g_minimap_settings))
@@ -374,11 +400,13 @@ namespace
         bool on_viewport_tab = g_tab_strip.active_index() == kViewportTabIndex;
         // On the Viewport tab, the Source/Golfed/Twigl mini previews are
         // redundant with the full-size live viewport, so they're hidden and
-        // the viewport expands to fill the space they would otherwise take.
-        int viewport_width = on_viewport_tab ? (window_width - kInspectorWidth) : main_width;
+        // the viewport expands to fill the space they would otherwise take
+        // (minus the value-sliders panel, which is shown here too).
+        int viewport_x = (on_viewport_tab && show_value_sliders) ? kValueSlidersWidth : 0;
+        int viewport_width = on_viewport_tab ? (window_width - kInspectorWidth - viewport_x) : main_width;
         if (g_viewport.hwnd() != nullptr)
         {
-            MoveWindow(g_viewport.hwnd(), 0, content_top, viewport_width, content_height, TRUE);
+            MoveWindow(g_viewport.hwnd(), viewport_x, content_top, viewport_width, content_height, TRUE);
             ShowWindow(g_viewport.hwnd(), on_viewport_tab ? SW_SHOW : SW_HIDE);
         }
         int mini_x = window_width - kInspectorWidth - kMiniPreviewWidth;
@@ -508,6 +536,11 @@ namespace
             g_golf_tips_panel.paint(g_render_target, g_brushes);
         }
 
+        if (value_sliders_panel_visible())
+        {
+            g_value_sliders_panel.paint(g_render_target, g_brushes);
+        }
+
         {
             D2D1_RECT_F inspector_bg = D2D1::RectF(static_cast<float>(window_width - kInspectorWidth), static_cast<float>(content_top),
                 static_cast<float>(window_width), static_cast<float>(client_rect.bottom));
@@ -623,6 +656,7 @@ namespace
         g_deep_search_toggle_button.destroy();
         g_apply_harder_button.destroy();
         g_formatted_view_button.destroy();
+        g_value_sliders_panel.destroy();
 
         g_document_tab_strip.create(g_render_target, g_dwrite_factory);
         g_tab_strip.create(g_render_target, g_dwrite_factory);
@@ -645,6 +679,7 @@ namespace
         g_deep_search_toggle_button.create(g_render_target, g_dwrite_factory);
         g_apply_harder_button.create(g_render_target, g_dwrite_factory);
         g_formatted_view_button.create(g_render_target, g_dwrite_factory);
+        g_value_sliders_panel.create(g_render_target, g_dwrite_factory);
 
         layout_chrome(hwnd);
     }
@@ -744,6 +779,15 @@ namespace
         g_harder_pending = false;
         g_status_dot.begin_compiling();
         std::string source = g_source_editor.text_utf8();
+        // Skipped mid-drag: rebuilding the row list here would reset the
+        // panel's own scroll position and drag state on every throttled
+        // recompile a slider drag triggers (see apply_value_slider_edit).
+        // The panel already reflects `source` exactly in that case, since
+        // it's the one that produced it.
+        if (!g_value_sliders_panel.is_dragging())
+        {
+            g_value_sliders_panel.sync_from_source(source);
+        }
         std::string compile_error;
         bool ok = g_shader_runner.compile(source, compile_error);
         g_gl_ready = ok;
@@ -809,6 +853,29 @@ namespace
             g_mini_twigl_gl_ready = false;
         }
         g_viewport.make_current();
+    }
+
+    // Pushes the value-sliders panel's current (already-edited) source
+    // into the real editor and recompiles from it, throttled to at most
+    // once per kValueSliderApplyIntervalMs unless `force` is set (always
+    // used for the initial mouse-down snap and the final mouse-up commit,
+    // so a click always takes effect immediately and a drag never ends
+    // with stale text on screen).
+    constexpr auto kValueSliderApplyInterval = std::chrono::milliseconds(60);
+    void apply_value_slider_edit(HWND hwnd, bool force)
+    {
+        auto now = std::chrono::steady_clock::now();
+        if (!force && now - g_last_value_slider_apply < kValueSliderApplyInterval)
+        {
+            return;
+        }
+        g_last_value_slider_apply = now;
+        g_source_editor.set_text_utf8_preserve_view(g_value_sliders_panel.current_source());
+        recompile_from_editor();
+        if (force)
+        {
+            layout_chrome(hwnd);
+        }
     }
 
     void switch_tab(HWND hwnd, int index)
@@ -1732,6 +1799,25 @@ namespace
             {
                 g_appearance_panel.on_mouse_move(x, y);
             }
+            if (g_value_slider_dragging)
+            {
+                // Deliberately NOT calling apply_value_slider_edit() here:
+                // that runs the full recompile pipeline (Rust golf FFI +
+                // up to 4 GL shader compiles), and this handler runs
+                // synchronously inside the message loop's drain step,
+                // *before* that iteration's paint_chrome() call (see the
+                // main loop below). A slow recompile there would stall the
+                // drain loop while the OS keeps queuing more WM_MOUSEMOVE
+                // messages, and the thumb would never visibly move until
+                // the backlog cleared -- exactly the "slider doesn't move"
+                // symptom this fixed. on_mouse_move() only updates the
+                // panel's own in-memory value/text (cheap, no GL/FFI), so
+                // the very next paint_chrome() call always reflects the
+                // latest mouse position; the throttled recompile itself is
+                // driven once per outer loop iteration instead (guaranteed
+                // to run between two paints, never blocking one).
+                g_value_sliders_panel.on_mouse_move(x, y);
+            }
             if (g_tab_strip.active_index() == kAboutTabIndex)
             {
                 g_about_panel.on_mouse_move(x, y);
@@ -1827,6 +1913,16 @@ namespace
             {
                 SetFocus(hwnd);
                 g_golf_controls.on_mouse_down(x, y);
+            }
+            else if (value_sliders_panel_visible() && g_value_sliders_panel.contains(x, y))
+            {
+                SetFocus(hwnd);
+                if (g_value_sliders_panel.on_mouse_down(x, y))
+                {
+                    g_value_slider_dragging = true;
+                    SetCapture(hwnd);
+                    apply_value_slider_edit(hwnd, true);
+                }
             }
             else if (g_tab_strip.active_index() == kAppearanceTabIndex && g_appearance_panel.contains(x, y))
             {
@@ -1926,10 +2022,36 @@ namespace
                     rebuild_ui_fonts(hwnd);
                 }
             }
+            if (g_value_slider_dragging)
+            {
+                // Order matters: apply the final commit *before* calling
+                // on_mouse_up() / clearing g_value_slider_dragging.
+                // recompile_from_editor() (called from
+                // apply_value_slider_edit) resyncs the panel's rows --
+                // including recomputing each row's slider *range* from its
+                // current value -- unless the panel reports it's still
+                // mid-drag. Since compute_slider_range() always centers a
+                // positive value at exactly the midpoint of its own
+                // derived range, doing that resync here (with the drag
+                // already marked over) would silently re-center the range
+                // around wherever you just dragged to, snapping the thumb
+                // straight back to the middle on every release -- the
+                // "sliders always end up centered" bug this order fixes.
+                apply_value_slider_edit(hwnd, true);
+                g_value_slider_dragging = false;
+                g_value_sliders_panel.on_mouse_up();
+                ReleaseCapture();
+            }
             return 0;
         case WM_MOUSEWHEEL:
         {
-            if (active_editor() != nullptr)
+            POINT wheel_pt{ GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+            ScreenToClient(hwnd, &wheel_pt);
+            if (value_sliders_panel_visible() && g_value_sliders_panel.contains(wheel_pt.x, wheel_pt.y))
+            {
+                g_value_sliders_panel.on_mouse_wheel(GET_WHEEL_DELTA_WPARAM(wparam));
+            }
+            else if (active_editor() != nullptr)
             {
                 active_editor()->on_mouse_wheel(GET_WHEEL_DELTA_WPARAM(wparam));
             }
@@ -1958,6 +2080,11 @@ namespace
             g_window_focused = false;
             g_tab_strip.set_focused(false);
             g_editor_dragging = false;
+            if (g_value_slider_dragging)
+            {
+                g_value_slider_dragging = false;
+                g_value_sliders_panel.on_mouse_up();
+            }
             return 0;
         case WM_CHAR:
         {
@@ -2248,6 +2375,10 @@ int main()
     {
         return 1;
     }
+    if (!g_value_sliders_panel.create(g_render_target, g_dwrite_factory))
+    {
+        return 1;
+    }
     // ROADMAP.md Phase 38.2 -- session-restore-on-launch: reconstruct every
     // document from the previous session if one was saved. File-backed
     // documents are re-read from disk (never trusted from the stale saved
@@ -2381,6 +2512,17 @@ int main()
             break;
         }
 
+        // Driven once per frame rather than from WM_MOUSEMOVE itself -- see
+        // the long comment at that handler's g_value_slider_dragging branch
+        // for why. apply_value_slider_edit is throttled internally, so
+        // this is a cheap no-op on most frames; it only actually pushes
+        // text + recompiles every kValueSliderApplyInterval while a drag
+        // is in progress, and always runs between two paint_chrome() calls.
+        if (g_value_slider_dragging)
+        {
+            apply_value_slider_edit(hwnd, false);
+        }
+
         render_viewport_frame(start_time, frame_index);
         render_mini_preview_frame(start_time, frame_index);
         ++frame_index;
@@ -2426,6 +2568,7 @@ int main()
     g_deep_search_toggle_button.destroy();
     g_apply_harder_button.destroy();
     g_formatted_view_button.destroy();
+    g_value_sliders_panel.destroy();
     accessibility_shutdown();
     g_icons.release();
     release_device_resources();

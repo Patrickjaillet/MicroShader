@@ -92,6 +92,37 @@ void Win32TextEditor::set_text_utf8(const std::string& utf8_text)
     retokenize_all();
 }
 
+// Same rebuild as set_text_utf8, but keeps the caret and scroll position
+// instead of resetting them to the top -- for callers that replace the
+// whole text programmatically (e.g. the value-sliders panel splicing in a
+// new literal on every drag tick) where losing the user's place in a long
+// file on every tick would be disruptive. Caret/scroll are clamped to the
+// new (possibly shorter) line count/lengths.
+void Win32TextEditor::set_text_utf8_preserve_view(const std::string& utf8_text)
+{
+    Caret saved_caret = caret;
+    Caret saved_selection_anchor = selection_anchor;
+    int saved_scroll_top_line = scroll_top_line;
+    float saved_scroll_x = scroll_x;
+
+    set_text_utf8(utf8_text);
+
+    caret = saved_caret;
+    selection_anchor = saved_selection_anchor;
+    clamp_caret(caret);
+    clamp_caret(selection_anchor);
+    scroll_top_line = saved_scroll_top_line;
+    if (scroll_top_line >= static_cast<int>(lines.size()))
+    {
+        scroll_top_line = static_cast<int>(lines.size()) - 1;
+    }
+    if (scroll_top_line < 0)
+    {
+        scroll_top_line = 0;
+    }
+    scroll_x = saved_scroll_x;
+}
+
 std::string Win32TextEditor::text_utf8() const
 {
     std::wstring combined;

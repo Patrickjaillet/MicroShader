@@ -199,6 +199,8 @@ add_executable(ushader
     src/ui/win32_about_panel.cpp
     src/ui/win32_tool_button.cpp
     src/ui/win32_twigl_export_panel.cpp
+    src/ui/win32_value_sliders_panel.cpp
+    src/ui/glsl_numeric_literals.cpp
     src/ui/golf_tips_panel.cpp
     src/ui/golf_options_convert.cpp
     src/ui/budget_presets.cpp
@@ -318,6 +320,7 @@ add_executable(ui_pure_logic_test
     src/ui/glsl_token_rules.cpp
     src/ui/glsl_syntax_colors.cpp
     src/ui/recent_files.cpp
+    src/ui/glsl_numeric_literals.cpp
     src/platform/paths.cpp
     src/platform/utf8.cpp
 )
@@ -348,6 +351,8 @@ add_executable(win32_panel_state_test
     src/ui/glsl_token_rules.cpp
     src/ui/glsl_syntax_colors.cpp
     src/ui/fuzzy_match.cpp
+    src/ui/win32_value_sliders_panel.cpp
+    src/ui/glsl_numeric_literals.cpp
     src/platform/accessibility_core.cpp
     src/platform/paths.cpp
     src/platform/utf8.cpp

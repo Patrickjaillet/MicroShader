@@ -21,6 +21,7 @@ public:
     void destroy();
 
     void set_text_utf8(const std::string& utf8_text);
+    void set_text_utf8_preserve_view(const std::string& utf8_text);
     std::string text_utf8() const;
     void insert_text_utf8(const std::string& utf8_text);
 

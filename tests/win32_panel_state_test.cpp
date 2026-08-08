@@ -10,6 +10,7 @@
 // Win32CommandPalette::current_query/filtered_count/selected_command_index)
 // gained small const test-support accessors for this file, mirroring the
 // precedent already set by Win32TwiglExportPanel's current_mode() etc.
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -26,6 +27,7 @@
 #include "../src/ui/win32_appearance_panel.h"
 #include "../src/ui/win32_appearance_settings.h"
 #include "../src/ui/win32_minimap.h"
+#include "../src/ui/win32_value_sliders_panel.h"
 #include "../src/platform/utf8.h"
 
 namespace
@@ -447,6 +449,66 @@ namespace
         g_colorblind_safe_indicators = saved_colorblind;
     }
 
+    // --- Win32ValueSlidersPanel ---------------------------------------------
+
+    void test_value_sliders_panel_sync_and_drag()
+    {
+        Win32ValueSlidersPanel panel;
+        panel.layout(0, 0, 260, 400);
+
+        std::string source = "void mainImage(out vec4 fragColor,in vec2 fragCoord){fragColor=vec4(1.0,0.5,0.25,1.0);}";
+        panel.sync_from_source(source);
+        expect_eq_int(panel.row_count_value(), 4, "sync_from_source finds every float literal");
+        expect_true(std::fabs(panel.row_value_at(0) - 1.0) < 1e-9, "row 0 is the first literal, 1.0");
+        expect_true(std::fabs(panel.row_value_at(1) - 0.5) < 1e-9, "row 1 is the second literal, 0.5");
+
+        expect_true(panel.contains(0, 0), "contains() includes the origin");
+        expect_false(panel.contains(260, 0), "contains() excludes the exclusive right edge");
+        expect_false(panel.is_dragging(), "the panel does not start in a dragging state");
+
+        // Row 0's slider track: top = origin_y + kContextHeight(18) + 8 = 26,
+        // bottom = 34, left = origin_x + kSliderPadding(10) = 10,
+        // right = width_px - kSliderPadding = 250.
+        int slider_left = 10;
+        int slider_right = 250;
+        int slider_mid_y = 30;
+
+        expect_false(panel.on_mouse_down(10, 5), "clicking above every slider's hit tolerance is not handled");
+
+        expect_true(panel.on_mouse_down(slider_left, slider_mid_y), "clicking row 0's slider track is handled");
+        expect_true(panel.is_dragging(), "clicking a slider starts a drag");
+        // Row 0's range for base value 1.0 (positive) is [0, 2.0]; clicking
+        // the far left of the track snaps the value to the range minimum.
+        expect_true(panel.row_value_at(0) < 0.5, "dragging to the far left of the track lowers the value toward the range minimum");
+
+        expect_true(panel.on_mouse_move(slider_right, slider_mid_y), "dragging to a new x position reports the text changed");
+        expect_true(panel.row_value_at(0) > 1.5, "dragging to the far right of the track raises the value toward the range maximum");
+        expect_true(panel.current_source().find("2.0") != std::string::npos,
+            "the spliced source reflects the dragged value");
+
+        panel.on_mouse_up();
+        expect_false(panel.is_dragging(), "releasing the mouse ends the drag");
+    }
+
+    void test_value_sliders_panel_later_offsets_shift_after_an_earlier_edit()
+    {
+        Win32ValueSlidersPanel panel;
+        panel.layout(0, 0, 260, 400);
+        panel.sync_from_source("vec2(0.5, 1.0)");
+        expect_eq_int(panel.row_count_value(), 2, "finds both literals");
+
+        panel.on_mouse_down(10, 30);
+        panel.on_mouse_move(250, 30); // drives row 0 ("0.5") toward its range max (1.0)
+        panel.on_mouse_up();
+
+        // Row 1 ("1.0") must still be present and intact in the spliced
+        // source even though row 0's replacement text is a different
+        // length than the original -- byte_offset shifting must have kept
+        // every later row's slice correct.
+        expect_true(panel.current_source().find("1.0") != std::string::npos,
+            "the untouched second literal survives an earlier row's edit");
+    }
+
     // --- win32_minimap.cpp (free function) --------------------------------------
 
     void test_minimap_should_render_thresholds()
@@ -480,6 +542,8 @@ int main()
     test_keybindings_save_and_load_round_trip();
     test_stats_panel_accepts_updates_without_create();
     test_appearance_panel_slider_drag_and_reset();
+    test_value_sliders_panel_sync_and_drag();
+    test_value_sliders_panel_later_offsets_shift_after_an_earlier_edit();
     test_minimap_should_render_thresholds();
 
     if (failures == 0)

@@ -4,6 +4,7 @@
 // plusieurs modules de logique pure, faciles a tester". Modeled on
 // tests/twigl_golf_collision_test.cpp's plain main()-based harness (no
 // framework dependency).
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -20,6 +21,7 @@
 #include "../src/ui/glsl_token_rules.h"
 #include "../src/ui/glsl_syntax_colors.h"
 #include "../src/ui/recent_files.h"
+#include "../src/ui/glsl_numeric_literals.h"
 
 namespace
 {
@@ -48,6 +50,15 @@ namespace
         if (actual != expected)
         {
             std::fprintf(stderr, "FAIL %s: expected \"%s\", got \"%s\"\n", what, expected.c_str(), actual.c_str());
+            ++failures;
+        }
+    }
+
+    void expect_eq_double(double actual, double expected, const char* what)
+    {
+        if (std::fabs(actual - expected) > 1e-9)
+        {
+            std::fprintf(stderr, "FAIL %s: expected %f, got %f\n", what, expected, actual);
             ++failures;
         }
     }
@@ -404,6 +415,84 @@ namespace
         clear_recent_files();
         expect_true(load_recent_files().empty(), "clear_recent_files empties the list again");
     }
+
+    // --- glsl_numeric_literals.cpp ------------------------------------------
+
+    void test_glsl_numeric_literals()
+    {
+        {
+            std::string source = "void mainImage(out vec4 fragColor,in vec2 fragCoord)"
+                "{fragColor=vec4(1.0,0.5,.25,1e-2);}";
+            std::vector<GlslNumericLiteral> literals = find_glsl_float_literals(source);
+            expect_eq_int(static_cast<long long>(literals.size()), 4, "finds every float literal in a vec4 constructor");
+            expect_eq_double(literals[0].value, 1.0, "first literal parses as 1.0");
+            expect_eq_double(literals[1].value, 0.5, "second literal parses as 0.5");
+            expect_eq_double(literals[2].value, 0.25, "leading-dot literal .25 parses as 0.25");
+            expect_eq_double(literals[3].value, 0.01, "exponent literal 1e-2 parses as 0.01");
+            const char* expected_text[] = { "1.0", "0.5", ".25", "1e-2" };
+            for (std::size_t i = 0; i < literals.size(); ++i)
+            {
+                expect_eq(source.substr(literals[i].byte_offset, literals[i].byte_length), expected_text[i],
+                    "byte_offset/byte_length slice out exactly the original literal text");
+            }
+        }
+        {
+            // Bare integers (loop bounds, indices) are out of scope; digits
+            // that are part of a longer identifier (vec3, mat2x2) must not
+            // be mistaken for literals; swizzle/member access (.xyz) must
+            // not be mistaken for a leading-dot literal.
+            std::string source = "vec3 v = arr[2]; mat2x2 m; float x1 = 3.0; v = v.xyz;";
+            std::vector<GlslNumericLiteral> literals = find_glsl_float_literals(source);
+            expect_eq_int(static_cast<long long>(literals.size()), 1, "only the genuine float literal is found");
+            expect_eq_double(literals[0].value, 3.0, "the one real literal parses correctly");
+        }
+        {
+            std::string source = "float a = 1.0; // 2.0 is commented out\n"
+                "/* 3.0 is block-commented */\n"
+                "float b = 4.0;";
+            std::vector<GlslNumericLiteral> literals = find_glsl_float_literals(source);
+            expect_eq_int(static_cast<long long>(literals.size()), 2, "literals inside // and /* */ comments are skipped");
+            expect_eq_double(literals[0].value, 1.0, "first real literal is 1.0");
+            expect_eq_double(literals[1].value, 4.0, "second real literal is 4.0");
+        }
+        {
+            expect_eq(format_glsl_float_literal(1.0), "1.0", "trims trailing zeros but keeps one digit after the point");
+            expect_eq(format_glsl_float_literal(0.25), "0.25", "keeps significant trailing digits");
+            expect_eq(format_glsl_float_literal(3.0), "3.0", "an integral value still gets a decimal point");
+        }
+        {
+            SliderRange zero = compute_slider_range(0.0);
+            expect_eq_double(zero.min_value, -1.0, "zero maps to a symmetric [-1, 1] range (min)");
+            expect_eq_double(zero.max_value, 1.0, "zero maps to a symmetric [-1, 1] range (max)");
+
+            SliderRange positive = compute_slider_range(0.5);
+            expect_eq_double(positive.min_value, 0.0, "a positive value's range starts at 0");
+            expect_eq_double(positive.max_value, 1.0, "a positive value's range tops out at 2x itself");
+
+            SliderRange negative = compute_slider_range(-3.0);
+            expect_eq_double(negative.min_value, -6.0, "a negative value's range is symmetric (min)");
+            expect_eq_double(negative.max_value, 6.0, "a negative value's range is symmetric, crossing zero (max)");
+        }
+        {
+            std::string spliced = splice_source("vec3(1.0, 2.0)", 5, 3, "1.5");
+            expect_eq(spliced, "vec3(1.5, 2.0)", "splice_source replaces exactly the given byte range");
+        }
+        {
+            std::string source = "void mainImage(out vec4 fragColor, in vec2 fragCoord)\n"
+                "{\n"
+                "    float x = 0.5;\n"
+                "    fragColor = vec4(x);\n"
+                "}\n";
+            std::size_t offset = source.find("0.5");
+            std::string snippet = literal_context_snippet(source, offset, 3, 30);
+            expect_eq(snippet, "float x = 0.5;", "short lines are returned whole, leading whitespace trimmed");
+
+            std::string long_source = "float veryLongVariableNameHere = 0.5; float another = 1.0;";
+            std::size_t long_offset = long_source.find("0.5");
+            std::string long_snippet = literal_context_snippet(long_source, long_offset, 3, 20);
+            expect_eq_int(static_cast<long long>(long_snippet.size()), 20, "an overlong line is truncated to max_chars");
+        }
+    }
 }
 
 int main()
@@ -416,6 +505,7 @@ int main()
     test_glsl_token_rules();
     test_glsl_syntax_colors();
     test_recent_files();
+    test_glsl_numeric_literals();
 
     if (failures == 0)
     {
