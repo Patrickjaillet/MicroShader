@@ -196,9 +196,9 @@ built-in profiles are always available: **Maximum** (everything on),
 **Safe** (conservative, dead-code removal only), and **None**
 (aggressive golfing off).
 
-The **Import exclude list...** action reads a plain-text, Shader
-Minifier–style list of names (one per line) and merges them into your
-protected-names field.
+The **Import exclude/protected name list...** action (available from
+the command palette) reads a plain-text, Shader Minifier–style list of
+names (one per line) and merges them into your protected-names field.
 
 ## Exporting your shader
 

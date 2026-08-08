@@ -5,7 +5,34 @@ application.
 
 ## [Unreleased]
 
-## [4.3.3] - 2026-08-08
+## [4.3.4] - 2026-08-08
+
+### Fixed
+
+- The command palette's "Import exclude list..." entry didn't match
+  its actual label ("Import exclude/protected name list...") in the
+  README.
+- The installer's fallback version string (used only when
+  `/DMyAppVersion` isn't passed to Inno Setup) was stuck at a very old
+  `1.6.0.18`; it now tracks the current release.
+
+### Removed
+
+- `ushader_golf`, the C API's non-traced golf entry point, was no
+  longer called by the application (only by two C++ tests, which now
+  use `ushader_golf_traced` instead -- a strict superset that just
+  ignores the trace output when passed a null out-param). Removed the
+  dead surface from both `capi.rs` and `golf_core.h`.
+
+### Added
+
+- Rust unit tests for the FFI boundary in `capi.rs` (9 tests), closing
+  the last gap the 4.3.x accessibility/wiring audit found: the unsafe
+  raw-pointer-array handling in `ushader_encode_gif` had no coverage
+  anywhere, Rust or C++, until now.
+- Rust unit tests for `aggressive.rs`'s one pure, standalone-testable
+  helper (`shortest_scientific_form`); the module's per-pass functions
+  remain covered end-to-end through `golfer.rs`'s existing test suite.
 
 ### Fixed
 

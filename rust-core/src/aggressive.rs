@@ -2402,3 +2402,41 @@ pub fn strip_duplicate_precision(items: Vec<Item>, stats: &mut AggressiveStats) 
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    // aggressive.rs's Vec<Item> passes are exercised end-to-end (with real
+    // tokenizer output) by golfer.rs's own extensive test suite, which runs
+    // the full pipeline and asserts on the per-pass counters this module's
+    // functions populate (dead_locals_removed, duplicate_precision_removed,
+    // etc.) -- so these tests target the one pure, standalone-testable
+    // helper in this file instead of duplicating that pipeline coverage.
+    use super::shortest_scientific_form;
+
+    #[test]
+    fn shortest_scientific_form_returns_none_for_zero() {
+        assert_eq!(shortest_scientific_form(0.0), None);
+    }
+
+    #[test]
+    fn shortest_scientific_form_round_trips_a_simple_value() {
+        let text = shortest_scientific_form(1.5).expect("1.5 should have a scientific form");
+        assert_eq!(text.parse::<f32>(), Ok(1.5));
+        assert!(text.contains('e'));
+    }
+
+    #[test]
+    fn shortest_scientific_form_round_trips_small_and_large_magnitudes() {
+        for value in [1.0e-6f32, 1.0e6f32, 2.5e-3f32, 123456.0f32] {
+            let text = shortest_scientific_form(value)
+                .unwrap_or_else(|| panic!("{value} should have a scientific form"));
+            assert_eq!(text.parse::<f32>(), Ok(value), "round-trip failed for {value}");
+        }
+    }
+
+    #[test]
+    fn shortest_scientific_form_round_trips_negative_values() {
+        let text = shortest_scientific_form(-42.5).expect("-42.5 should have a scientific form");
+        assert_eq!(text.parse::<f32>(), Ok(-42.5));
+    }
+}

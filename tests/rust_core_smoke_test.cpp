@@ -6,10 +6,10 @@
 static int check(const char* label, const char* source, UshaderGolfOptions options, const char* expected)
 {
     UshaderGolfStats stats{};
-    char* golfed = ushader_golf(source, options, nullptr, &stats);
+    char* golfed = ushader_golf_traced(source, options, nullptr, &stats, nullptr);
     if (golfed == nullptr)
     {
-        std::fprintf(stderr, "%s: ushader_golf returned null\n", label);
+        std::fprintf(stderr, "%s: ushader_golf_traced returned null\n", label);
         return 1;
     }
 
@@ -62,9 +62,9 @@ int main()
         "void mainImage(out vec4 e,in vec2 a){float b=floor(a.x)+floor(a.y),c=fract(a.x)+fract(a.y),d=b+c+floor(b)+fract(c),f=d+b+c;e=vec4(b+c+d+f);}");
 
     UshaderGolfStats dead_store_stats{};
-    char* dead_store_golfed = ushader_golf(
+    char* dead_store_golfed = ushader_golf_traced(
         "void mainImage(out vec4 fragColor,in vec2 fragCoord){float x=1.0;x=2.0;fragColor=vec4(x);}",
-        all, nullptr, &dead_store_stats);
+        all, nullptr, &dead_store_stats, nullptr);
     if (dead_store_golfed == nullptr || dead_store_stats.dead_stores_removed != 1)
     {
         std::fprintf(stderr, "aggressive pipeline: expected dead_stores_removed == 1, got %zu\n", dead_store_stats.dead_stores_removed);
@@ -72,7 +72,7 @@ int main()
     }
     ushader_free_string(dead_store_golfed);
 
-    char* null_result = ushader_golf(nullptr, none, nullptr, nullptr);
+    char* null_result = ushader_golf_traced(nullptr, none, nullptr, nullptr, nullptr);
     if (null_result != nullptr)
     {
         std::fprintf(stderr, "null source: expected null result\n");

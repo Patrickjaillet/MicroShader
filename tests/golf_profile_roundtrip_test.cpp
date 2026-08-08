@@ -164,11 +164,12 @@ int main()
     }
 
     UshaderGolfStats stats{};
-    char* golfed = ushader_golf(
+    char* golfed = ushader_golf_traced(
         "void mainImage(out vec4 fragColor,in vec2 fragCoord){float x=1.0;x=2.0;fragColor=vec4(x);}",
         options_from_reloaded,
         loaded_protected_names.c_str(),
-        &stats);
+        &stats,
+        nullptr);
     if (golfed == nullptr)
     {
         std::fprintf(stderr, "the round-tripped AggressiveOptions failed to golf through the real Rust engine\n");

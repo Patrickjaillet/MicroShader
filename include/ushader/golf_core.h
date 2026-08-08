@@ -115,11 +115,6 @@ typedef struct {
 extern "C" {
 #endif // __cplusplus
 
-char *ushader_golf(const char *source,
-                   UshaderGolfOptions options,
-                   const char *protected_names,
-                   UshaderGolfStats *out_stats);
-
 void ushader_free_string(char *s);
 
 // ROADMAP.md/roadmap_twigl.md Phase 45.1 -- hand-written GIF89a encoder.

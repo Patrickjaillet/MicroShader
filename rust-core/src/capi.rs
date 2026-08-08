@@ -1,7 +1,7 @@
 use crate::budget::estimate_budget;
 use crate::gif::{encode_gif, GifFrame};
 use crate::golfer::{
-    golf_with_protected_names, golf_with_protected_names_traced, AggressiveOptions, GolferTrace,
+    golf_with_protected_names_traced, AggressiveOptions, GolferTrace,
     GolfStats,
 };
 use crate::search::{golf_harder, golf_harder_deep, AppliedChange, SearchObjective};
@@ -151,49 +151,6 @@ impl From<GolfStats> for UshaderGolfStats {
             loop_headers_golfed: s.aggressive.loop_headers_golfed,
             loop_forms_normalized: s.aggressive.loop_forms_normalized,
         }
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn ushader_golf(
-    source: *const c_char,
-    options: UshaderGolfOptions,
-    protected_names: *const c_char,
-    out_stats: *mut UshaderGolfStats,
-) -> *mut c_char {
-    if source.is_null() {
-        return std::ptr::null_mut();
-    }
-
-    let source = match unsafe { CStr::from_ptr(source) }.to_str() {
-        Ok(s) => s,
-        Err(_) => return std::ptr::null_mut(),
-    };
-
-    let names: Vec<String> = if protected_names.is_null() {
-        Vec::new()
-    } else {
-        match unsafe { CStr::from_ptr(protected_names) }.to_str() {
-            Ok(s) => s
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect(),
-            Err(_) => Vec::new(),
-        }
-    };
-
-    let result = golf_with_protected_names(source, options.into(), &names);
-
-    if !out_stats.is_null() {
-        unsafe {
-            *out_stats = result.stats.into();
-        }
-    }
-
-    match CString::new(result.code) {
-        Ok(c_string) => c_string.into_raw(),
-        Err(_) => std::ptr::null_mut(),
     }
 }
 
@@ -700,6 +657,134 @@ pub extern "C" fn ushader_twigl_snippet(name: *const c_char) -> *mut c_char {
     match twigl_snippet(name).and_then(|s| CString::new(s).ok()) {
         Some(c_string) => c_string.into_raw(),
         None => std::ptr::null_mut(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // This module targets the FFI boundary itself (null-pointer handling,
+    // the raw-pointer-array unsafe path in ushader_encode_gif, and the
+    // owned-buffer free functions) rather than the golfing/twigl logic
+    // those calls delegate to -- that logic already has its own extensive
+    // test coverage in golfer.rs/twigl.rs/gif.rs. Before this module
+    // existed, ushader_encode_gif's unsafe `slice::from_raw_parts` calls
+    // over a caller-supplied pointer array had no test coverage anywhere,
+    // Rust or C++.
+    use super::*;
+    use std::ffi::CString;
+
+    fn zeroed_options() -> UshaderGolfOptions {
+        // All-POD (bool/i32) struct -- zero-initializing is safe and gives
+        // every pass "off", which is all these tests need.
+        unsafe { std::mem::zeroed() }
+    }
+
+    #[test]
+    fn ushader_golf_traced_returns_null_for_null_source() {
+        let mut stats = unsafe { std::mem::zeroed() };
+        let result = ushader_golf_traced(
+            std::ptr::null(),
+            zeroed_options(),
+            std::ptr::null(),
+            &mut stats,
+            std::ptr::null_mut(),
+        );
+        assert!(result.is_null());
+    }
+
+    #[test]
+    fn ushader_golf_traced_golfs_and_emits_trace_json() {
+        let source = CString::new(
+            "void mainImage(out vec4 fragColor,in vec2 fragCoord){fragColor=vec4(1.0);}",
+        )
+        .unwrap();
+        let mut stats = unsafe { std::mem::zeroed() };
+        let mut trace_json: *mut c_char = std::ptr::null_mut();
+        let golfed = ushader_golf_traced(
+            source.as_ptr(),
+            zeroed_options(),
+            std::ptr::null(),
+            &mut stats,
+            &mut trace_json,
+        );
+        assert!(!golfed.is_null());
+        assert!(!trace_json.is_null());
+        let trace_text = unsafe { CStr::from_ptr(trace_json) }.to_str().unwrap();
+        assert!(trace_text.starts_with('['), "trace should be a JSON array: {trace_text}");
+        ushader_free_string(golfed);
+        ushader_free_string(trace_json);
+    }
+
+    #[test]
+    fn ushader_free_string_on_null_is_a_safe_noop() {
+        ushader_free_string(std::ptr::null_mut());
+    }
+
+    #[test]
+    fn ushader_encode_gif_returns_empty_buffer_for_null_frame_array() {
+        let buffer = ushader_encode_gif(std::ptr::null(), 1, 4, 4, 10);
+        assert!(buffer.data.is_null());
+        assert_eq!(buffer.len, 0);
+        ushader_free_byte_buffer(buffer);
+    }
+
+    #[test]
+    fn ushader_encode_gif_returns_empty_buffer_for_zero_dimensions_or_frame_count() {
+        let frame = [0u8; 16];
+        let ptr: *const u8 = frame.as_ptr();
+        let frames: [*const u8; 1] = [ptr];
+
+        let zero_count = ushader_encode_gif(frames.as_ptr(), 0, 2, 2, 10);
+        assert!(zero_count.data.is_null());
+        ushader_free_byte_buffer(zero_count);
+
+        let zero_width = ushader_encode_gif(frames.as_ptr(), 1, 0, 2, 10);
+        assert!(zero_width.data.is_null());
+        ushader_free_byte_buffer(zero_width);
+
+        let zero_height = ushader_encode_gif(frames.as_ptr(), 1, 2, 0, 10);
+        assert!(zero_height.data.is_null());
+        ushader_free_byte_buffer(zero_height);
+    }
+
+    #[test]
+    fn ushader_encode_gif_returns_empty_buffer_for_a_null_frame_pointer() {
+        let frames: [*const u8; 2] = [std::ptr::null(), std::ptr::null()];
+        let buffer = ushader_encode_gif(frames.as_ptr(), 2, 2, 2, 10);
+        assert!(buffer.data.is_null());
+        ushader_free_byte_buffer(buffer);
+    }
+
+    #[test]
+    fn ushader_encode_gif_encodes_a_solid_frame_and_round_trips_through_free() {
+        // A single 2x2 opaque-red RGBA8 frame -- exactly the layout
+        // `glReadPixels(..., GL_RGBA, GL_UNSIGNED_BYTE, ...)` would produce.
+        let frame: [u8; 16] = [
+            255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255,
+        ];
+        let frames: [*const u8; 1] = [frame.as_ptr()];
+        let buffer = ushader_encode_gif(frames.as_ptr(), 1, 2, 2, 10);
+        assert!(!buffer.data.is_null());
+        assert!(buffer.len > 0);
+        // GIF89a magic bytes.
+        let bytes = unsafe { std::slice::from_raw_parts(buffer.data, buffer.len) };
+        assert_eq!(&bytes[0..3], b"GIF");
+        ushader_free_byte_buffer(buffer);
+    }
+
+    #[test]
+    fn ushader_estimate_budget_returns_zero_for_null_input() {
+        let result = ushader_estimate_budget(std::ptr::null());
+        assert_eq!(result.raw_bytes, 0);
+        assert_eq!(result.deflate_bytes, 0);
+    }
+
+    #[test]
+    fn ushader_estimate_budget_returns_nonzero_for_real_source() {
+        let source = CString::new("void mainImage(out vec4 a,in vec2 b){a=vec4(1.);}").unwrap();
+        let result = ushader_estimate_budget(source.as_ptr());
+        assert!(result.raw_bytes > 0);
+        assert!(result.deflate_bytes > 0);
     }
 }
 

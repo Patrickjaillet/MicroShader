@@ -4,7 +4,7 @@
 #define MyAppExeName "ushader.exe"
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.6.0.18"
+  #define MyAppVersion "4.3.4.0"
 #endif
 
 [Setup]
