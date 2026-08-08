@@ -659,15 +659,19 @@ pub extern "C" fn ushader_twigl_unrewrite(source: *const c_char, mode: i32) -> *
 // rewrite_twigl_shader_full already resolves every rename-target collision
 // automatically (resolve_rename_collisions, called internally) -- this
 // returns a single string joining (with "; ") a human-readable note for
-// each rename it actually applied for this source/mode/es300 combination,
-// so the UI can tell the user their shader was adjusted (e.g. a local `r`
-// became `r_0`) instead of the export just silently differing from what
-// they typed. Empty (not null) when no renames were needed.
+// each rename it actually applied for this source/mode/es300/mrt_targets
+// combination, so the UI can tell the user their shader was adjusted (e.g. a
+// local `r` became `r_0`) instead of the export just silently differing from
+// what they typed. Empty (not null) when no renames were needed. `mrt_targets`
+// must match the value passed to ushader_twigl_rewrite_full for the same
+// export, or this can miss/misreport renames (MRT and single-target use
+// different collision checks -- see resolve_rename_collisions).
 #[no_mangle]
 pub extern "C" fn ushader_twigl_rename_collision_warnings(
     source: *const c_char,
     mode: i32,
     es300: bool,
+    mrt_targets: u8,
 ) -> *mut c_char {
     if source.is_null() {
         return std::ptr::null_mut();
@@ -676,7 +680,8 @@ pub extern "C" fn ushader_twigl_rename_collision_warnings(
         Ok(s) => s,
         Err(_) => return std::ptr::null_mut(),
     };
-    let (_, applied) = resolve_rename_collisions(source, twigl_mode_from_code(mode), es300);
+    let (_, applied) =
+        resolve_rename_collisions(source, twigl_mode_from_code(mode), es300, mrt_targets);
     match CString::new(applied.join("; ")) {
         Ok(c_string) => c_string.into_raw(),
         Err(_) => std::ptr::null_mut(),

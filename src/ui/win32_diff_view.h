@@ -24,6 +24,12 @@ public:
 
     bool contains(int client_x, int client_y) const;
 
+    // Test-support accessors (same rationale as Win32TwiglExportPanel's
+    // current_mode() etc.): expose otherwise-private scroll state so tests
+    // can assert on it without a D2D render target.
+    int scroll_top_row_value() const { return scroll_top_row; }
+    int row_count_value() const { return row_count; }
+
 private:
     struct DrawSpan
     {

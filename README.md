@@ -300,9 +300,10 @@ The **Appearance** tab lets you adjust:
 - **Colorblind-safe status indicators** — shape-differentiated status
   dots (circle/triangle/square) instead of relying on color alone.
 
-Every button, tab, checkbox, and slider in µShader is also exposed to
-Windows screen readers (such as Narrator) with a proper name, role,
-and live state.
+Most interactive controls (buttons, tabs, checkboxes, sliders) in µShader
+are exposed to Windows screen readers (such as Narrator) with a proper
+name, role, and live state. Coverage is not yet complete for Diff, Trace,
+Stats, Keybindings, Command Palette and Minimap panels.
 
 ## License
 

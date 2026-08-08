@@ -69,8 +69,24 @@ pub fn twigl_snippet(name: &str) -> Option<&'static str> {
 // by an identifier character, i.e. it's a genuine standalone identifier
 // occurrence rather than a substring of a longer one (e.g. `iTime` inside
 // `iTimeScale`).
+//
+// A leading `.` is deliberately excluded from the set of valid "boundary"
+// characters even though it isn't alphanumeric: `.` introduces a swizzle
+// (`k.r`) or struct-member access, never a standalone identifier, and every
+// target this module ever searches for or renames (r/m/t/f/b/o/FC and the
+// long iResolution/iMouse/... names) is spelled identically to a legal
+// swizzle mask letter or component thereof for at least the single-letter
+// Geek-mode short names. Without this exclusion, a real, unrelated `.r`/`.g`/
+// `.b`/`.t`/`.s` swizzle collides at the text level with the `r`/`t`/`b`(/`s`)
+// short-name targets and gets corrupted by the rename passes below (observed:
+// a collision-driven rename of a local `r` turned `k.r` into the illegal
+// `k.r_0`, which twigl.app's own compiler then rejects as "illegal vector
+// field selection").
 fn is_identifier_boundary_match(text: &str, start: usize, end: usize) -> bool {
-    let before_ok = text[..start].chars().last().map_or(true, |c| !(c.is_alphanumeric() || c == '_'));
+    let before_ok = text[..start]
+        .chars()
+        .last()
+        .map_or(true, |c| !(c.is_alphanumeric() || c == '_' || c == '.'));
     let after_ok = text[end..].chars().next().map_or(true, |c| !(c.is_alphanumeric() || c == '_'));
     before_ok && after_ok
 }
@@ -512,7 +528,26 @@ fn strip_es300_output_header(input: &str, mode: TwiglMode) -> (String, bool) {
 // occurrence. This is the same ambiguity anyone hand-porting geek-mode code
 // already has to watch for; it is not introduced by this function.
 pub fn unrewrite_twigl_shader(input: &str, mode: TwiglMode) -> String {
-    let (stripped, rename_output_to_frag_color) = strip_es300_output_header(input, mode);
+    let (stripped, mut rename_output_to_frag_color) = strip_es300_output_header(input, mode);
+
+    // Geekest's ES300 export (see rewrite_twigl_shader) never writes the
+    // `#version 300 es`/`out vec4 o;` header at all -- twigl.app's own
+    // Geekest wrapper supplies both, the same way it already supplies
+    // precision/uniforms/void main(){}. So header presence can't be used to
+    // detect that an es300 export is being imported here, the way it is for
+    // every other mode. The body itself still carries the signal: an es300
+    // Geekest export assigns its bare `o` output (gl_FragColor was rewritten
+    // to `o` at export time, see rewrite_twigl_shader), while a non-es300
+    // Geekest export still assigns `gl_FragColor` directly. A shader with no
+    // color output at all wouldn't render anything on twigl.app either way,
+    // so treating "no gl_FragColor, but a bare o" as es300 is safe.
+    if matches!(mode, TwiglMode::Geekest)
+        && !rename_output_to_frag_color
+        && !identifier_present(&stripped, "gl_FragColor")
+        && identifier_present(&stripped, "o")
+    {
+        rename_output_to_frag_color = true;
+    }
 
     let reversed: &[(&str, &str)] = match mode {
         TwiglMode::Classic => &[
@@ -562,7 +597,7 @@ pub fn unrewrite_twigl_shader(input: &str, mode: TwiglMode) -> String {
 
 pub fn rewrite_twigl_shader(input: &str, mode: TwiglMode, es300: bool) -> String {
     let input = normalize_mainimage_to_plain_main(input);
-    let (input, _renames) = resolve_rename_collisions(&input, mode, es300);
+    let (input, _renames) = resolve_rename_collisions(&input, mode, es300, 1);
     let mut output = rewrite_twigl_uniforms(&input, mode);
     if matches!(mode, TwiglMode::Geeker | TwiglMode::Geekest) {
         output = strip_precision_and_uniform_declarations(&output);
@@ -574,9 +609,19 @@ pub fn rewrite_twigl_shader(input: &str, mode: TwiglMode, es300: bool) -> String
     if es300 {
         output = rewrite_es300_deprecated_texture_calls(&output);
         output = replace_identifier(&output, "gl_FragColor", es300_output_name(mode));
-        let mut header = twigl_es300_header(mode, 1);
-        header.push_str(&output);
-        output = header;
+        // Geekest's own wrapper already supplies `#version 300 es` and the
+        // `out vec4 o;` declaration (same as it already supplies precision,
+        // uniforms, and -- per strip_main_wrapper above -- void main(){}
+        // itself), so prefixing them here would both duplicate what
+        // twigl.app's template injects and produce invalid standalone GLSL
+        // in the meantime (a `#version`/`out` pair with no enclosing main()
+        // to hold the body's statements). Every other mode keeps writing its
+        // own header since none of them strip main() the same way.
+        if !matches!(mode, TwiglMode::Geekest) {
+            let mut header = twigl_es300_header(mode, 1);
+            header.push_str(&output);
+            output = header;
+        }
     }
     output
 }
@@ -588,10 +633,14 @@ pub fn rewrite_twigl_shader_mrt(input: &str, mode: TwiglMode, mrt_targets: u8) -
     // gl_FragColor to o/outColor at all; the source is expected to already
     // reference o0/o1 (or outColor0/outColor1) directly, so there is no
     // later substitution step for a pre-existing bare "o"/"outColor" to
-    // collide with, and resolve_rename_collisions's ES300 output-name check
-    // would incorrectly "resolve" a collision that doesn't exist. The r/m/
-    // t/f/b checks (mode-gated) and the Geekest FC check still apply.
-    let (input, _renames) = resolve_rename_collisions(&input, mode, false);
+    // collide with, and resolve_rename_collisions's mono-target ES300
+    // output-name check would incorrectly "resolve" a collision that
+    // doesn't exist. Passing the real `mrt_targets` instead makes it run
+    // the MRT-specific o0/o1 (or outColor0/outColor1) check instead, which
+    // only flags a *locally declared* collision, not the expected bare
+    // usage. The r/m/t/f/b checks (mode-gated) and the Geekest FC check
+    // still apply either way.
+    let (input, _renames) = resolve_rename_collisions(&input, mode, false, mrt_targets);
     let mut output = rewrite_twigl_uniforms(&input, mode);
     if matches!(mode, TwiglMode::Geeker | TwiglMode::Geekest) {
         output = strip_precision_and_uniform_declarations(&output);
@@ -658,6 +707,50 @@ pub fn twigl_backbuffer_and_sound_declarations(
     out
 }
 
+// GLSL ES 1.00/3.00 type keywords that can prefix a declaration -- used by
+// identifier_looks_locally_declared below. Not exhaustive (no sampler*/mat*xN
+// non-square forms) since this only needs to catch the common case of a
+// user's own scalar/vector local shadowing an MRT output name; missing a rare
+// type keyword just means that declaration isn't flagged, no worse than today.
+const GLSL_TYPE_KEYWORDS: &[&str] = &[
+    "void", "bool", "int", "uint", "float",
+    "vec2", "vec3", "vec4",
+    "ivec2", "ivec3", "ivec4",
+    "uvec2", "uvec3", "uvec4",
+    "bvec2", "bvec3", "bvec4",
+    "mat2", "mat3", "mat4",
+];
+
+// True if `name` appears in `text` immediately preceded (modulo whitespace)
+// by a GLSL type keyword, i.e. it looks like a declaration (`float o0 = ...`,
+// `vec4 o0;`) rather than a bare reference/assignment (`o0 = ...`). Used to
+// distinguish an MRT output name's *expected* bare usage (twigl's MRT
+// convention has the user write directly to o0/o1 as implicit globals, never
+// declaring them) from a genuine, coincidental local variable of the same
+// name -- which the header injection in rewrite_twigl_shader_mrt would
+// silently shadow, exactly like the mono-target collision this function
+// already guards against for gl_FragColor's rename target.
+fn identifier_looks_locally_declared(text: &str, name: &str) -> bool {
+    for (start, _) in text.match_indices(name) {
+        let end = start + name.len();
+        if !is_identifier_boundary_match(text, start, end) {
+            continue;
+        }
+        let before = text[..start].trim_end();
+        let is_declaration = GLSL_TYPE_KEYWORDS.iter().any(|kw| {
+            before.ends_with(kw)
+                && before[..before.len() - kw.len()]
+                    .chars()
+                    .last()
+                    .map_or(true, |c| !(c.is_alphanumeric() || c == '_'))
+        });
+        if is_declaration {
+            return true;
+        }
+    }
+    false
+}
+
 // Detects local-identifier collisions that a pure text-substitution rewrite
 // cannot safely avoid: Geek/Geeker/Geekest mode renames iResolution/iMouse/
 // iTime/iFrame/iChannel0 to r/m/t/f/b (and, in ES300 modes, gl_FragColor to
@@ -697,8 +790,19 @@ fn generate_free_identifier(input: &str, base: &str) -> String {
 // (for the UI to inform the user what changed), empty when none were
 // needed. Called automatically by rewrite_twigl_shader/rewrite_twigl_shader_mrt,
 // so every twigl export is collision-free by construction; also callable
-// directly for diagnostics/tests.
-pub fn resolve_rename_collisions(input: &str, mode: TwiglMode, es300: bool) -> (String, Vec<String>) {
+// directly for diagnostics/tests. `mrt_targets >= 2` selects the MRT output
+// name check (o0/o1 or outColor0/outColor1, only flagged when they look
+// locally *declared* -- see identifier_looks_locally_declared -- since bare
+// references are twigl's normal MRT convention) instead of the mono-target
+// one (o/outColor, gated on `es300` since a mono-target export may or may
+// not be ES300); rewrite_twigl_shader_mrt always passes `es300=false` and a
+// real `mrt_targets` since MRT is unconditionally an ES300 export.
+pub fn resolve_rename_collisions(
+    input: &str,
+    mode: TwiglMode,
+    es300: bool,
+    mrt_targets: u8,
+) -> (String, Vec<String>) {
     let mut output = input.to_string();
     let mut applied = Vec::new();
 
@@ -726,7 +830,19 @@ pub fn resolve_rename_collisions(input: &str, mode: TwiglMode, es300: bool) -> (
         }
     }
 
-    if es300 {
+    if mrt_targets >= 2 {
+        let out_base = es300_output_name(mode);
+        for i in 0..2u8 {
+            let out_name = format!("{out_base}{i}");
+            if identifier_looks_locally_declared(&output, &out_name) {
+                let fresh = generate_free_identifier(&output, &out_name);
+                output = replace_identifier(&output, &out_name, &fresh);
+                applied.push(format!(
+                    "renamed your '{out_name}' to '{fresh}' (it would otherwise collide with the ES 3.00 MRT output variable)"
+                ));
+            }
+        }
+    } else if es300 {
         let out_name = es300_output_name(mode);
         if identifier_present(&output, out_name) {
             let fresh = generate_free_identifier(&output, out_name);
@@ -1247,12 +1363,36 @@ mod tests {
     // automatically (the shader's own conflicting identifier is renamed out
     // of the way) rather than merely flagged for the user to fix by hand. --
 
+    // Regression test for a real reported bug: twigl.app rejected the
+    // exported shader with "ERROR: 'r_0' : illegal vector field selection".
+    // The shader never declared its own local `r` variable -- it only used
+    // `.r` as a swizzle on an unrelated vec3 (`k.r`) -- but iResolution was
+    // also present, so identifier_present(..., "r") used to match that
+    // swizzle's `r` too (a `.` was accepted as a valid identifier boundary),
+    // wrongly declaring a collision and renaming the swizzle itself to the
+    // illegal `.r_0`. There is no real collision here (a swizzle component
+    // is never a variable reference), so no rename should ever fire.
+    #[test]
+    fn a_bare_r_swizzle_component_never_triggers_or_receives_the_r_collision_rename() {
+        let input = "vec3 k=vec3(iResolution.xy,1.);float x=k.r+iResolution.x;";
+        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geekest, false, 1);
+        assert!(applied.is_empty(), "no real collision exists, but a rename was applied: {applied:?}");
+        assert!(output.contains("k.r"), "the swizzle must survive untouched: {output}");
+        assert!(!output.contains("r_0"), "the swizzle must never be corrupted into r_0: {output}");
+
+        // And the full export pipeline must produce the same valid `.r`,
+        // never the illegal `.r_0` twigl.app's compiler rejected.
+        let exported = rewrite_twigl_shader(input, TwiglMode::Geekest, false);
+        assert!(exported.contains("k.r"), "{exported}");
+        assert!(!exported.contains("r_0"), "{exported}");
+    }
+
     #[test]
     fn auto_renames_a_local_identifier_that_collides_with_a_geek_family_uniform_target() {
         // Mirrors the actual reported shader: iResolution used early, then
         // a local `r` declared and used for something unrelated later.
         let input = "vec2 C=(B-.5*iResolution.xy)/iResolution.y;vec3 r=vec3(1.8,1.8,2.2);vec3 k=floor(c/r);";
-        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geekest, false);
+        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geekest, false, 1);
         assert_eq!(applied.len(), 1);
         assert!(applied[0].contains('r'));
         assert!(applied[0].contains("iResolution"));
@@ -1284,7 +1424,7 @@ mod tests {
     #[test]
     fn no_rename_needed_when_the_only_short_name_present_is_the_uniform_itself() {
         let input = "vec2 C=(B-.5*iResolution.xy)/iResolution.y;";
-        assert!(resolve_rename_collisions(input, TwiglMode::Geekest, false).1.is_empty());
+        assert!(resolve_rename_collisions(input, TwiglMode::Geekest, false, 1).1.is_empty());
     }
 
     #[test]
@@ -1292,7 +1432,7 @@ mod tests {
         // Classic mode's targets are long words (resolution/mouse/...), not
         // single letters -- scoped out to avoid noisy, unnecessary renames.
         let input = "vec2 C=(B-.5*iResolution.xy)/iResolution.y;float resolution=1.;";
-        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Classic, false);
+        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Classic, false, 1);
         assert!(applied.is_empty());
         assert_eq!(output, input);
     }
@@ -1300,7 +1440,7 @@ mod tests {
     #[test]
     fn resolves_multiple_distinct_collisions_independently() {
         let input = "float t=1.;float m=2.;vec4 x=vec4(iTime,iMouse.x,0.,1.);";
-        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geek, false);
+        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geek, false, 1);
         assert_eq!(applied.len(), 2);
         assert!(applied.iter().any(|w| w.contains('t') && w.contains("iTime")));
         assert!(applied.iter().any(|w| w.contains('m') && w.contains("iMouse")));
@@ -1312,8 +1452,8 @@ mod tests {
     fn resolves_es300_output_name_collision_only_when_es300_is_active() {
         let input = "void mainImage(out vec4 fragColor,in vec2 fragCoord){float o=1.;fragColor=vec4(o);}";
         let normalized = normalize_mainimage_to_plain_main(input);
-        assert!(resolve_rename_collisions(&normalized, TwiglMode::Geekest, false).1.is_empty());
-        let (output, applied) = resolve_rename_collisions(&normalized, TwiglMode::Geekest, true);
+        assert!(resolve_rename_collisions(&normalized, TwiglMode::Geekest, false, 1).1.is_empty());
+        let (output, applied) = resolve_rename_collisions(&normalized, TwiglMode::Geekest, true, 1);
         assert_eq!(applied.len(), 1);
         assert!(applied[0].contains('o'));
         assert!(output.contains("o_0"));
@@ -1322,8 +1462,8 @@ mod tests {
     #[test]
     fn resolves_fc_collision_only_for_geekest_mode() {
         let input = "float FC=1.;gl_FragColor=vec4(FC);";
-        assert!(resolve_rename_collisions(input, TwiglMode::Geek, false).1.is_empty());
-        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geekest, false);
+        assert!(resolve_rename_collisions(input, TwiglMode::Geek, false, 1).1.is_empty());
+        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geekest, false, 1);
         assert_eq!(applied.len(), 1);
         assert!(applied[0].contains("FC"));
         assert!(output.contains("FC_0"));
@@ -1334,10 +1474,71 @@ mod tests {
         // If the shader already happens to use "r_0" for something else,
         // the generator must skip past it rather than reuse it.
         let input = "vec2 C=(B-.5*iResolution.xy)/iResolution.y;float r_0=1.;float r=2.;float x=r+r_0;";
-        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geekest, false);
+        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geekest, false, 1);
         assert_eq!(applied.len(), 1);
         assert!(output.contains("r_1"), "must skip the already-used r_0: {output}");
         assert!(output.contains("float r_0=1.;"), "the pre-existing r_0 must survive untouched: {output}");
+    }
+
+    // --- MRT-specific collision coverage: closes the gap noted in TODO.md,
+    // "Le mode MRT n'est pas couvert par la resolution automatique de
+    // collision de noms" -- rewrite_twigl_shader_mrt calls
+    // resolve_rename_collisions with es300=false, so before this fix its
+    // ES300 output-name check never ran for MRT at all, and it only knew
+    // the mono-target name (o/outColor) rather than o0/o1/outColor0/
+    // outColor1. A shader whose own locally-declared variable happens to be
+    // named o0/o1 would then be silently shadowed by the header's `out vec4
+    // o0;`, the same class of corruption as the mono-target bug this
+    // function already guards against. ---
+
+    #[test]
+    fn resolve_rename_collisions_renames_a_locally_declared_variable_that_collides_with_an_mrt_output_name() {
+        let input = "void main(){float o0=1.;o1=vec4(o0);}";
+        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geekest, false, 2);
+        assert_eq!(applied.len(), 1, "{applied:?}");
+        assert!(applied[0].contains("o0"));
+        assert!(output.contains("float o0_0=1.;"), "the local declaration must be renamed: {output}");
+        assert!(output.contains("o1=vec4(o0_0)"), "every use of the local must follow the same rename: {output}");
+    }
+
+    #[test]
+    fn resolve_rename_collisions_does_not_rename_the_expected_bare_mrt_output_usage() {
+        // o0/o1 used without a local declaration is twigl's normal MRT
+        // convention (the user writes directly to them as implicit
+        // globals) -- this must NOT be treated as a collision, or every
+        // legitimate MRT shader would get needlessly mangled.
+        let input = "void main(){o0=vec4(1.);o1=vec4(2.);}";
+        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Geekest, false, 2);
+        assert!(applied.is_empty(), "{applied:?}");
+        assert_eq!(output, input);
+    }
+
+    #[test]
+    fn resolve_rename_collisions_checks_outcolor0_outcolor1_for_classic_mrt() {
+        let input = "void main(){vec4 outColor0=vec4(1.);}";
+        let (output, applied) = resolve_rename_collisions(input, TwiglMode::Classic, false, 2);
+        assert_eq!(applied.len(), 1, "{applied:?}");
+        assert!(applied[0].contains("outColor0"));
+        assert!(output.contains("outColor0_0"), "{output}");
+    }
+
+    #[test]
+    fn resolve_rename_collisions_mono_target_output_check_is_skipped_when_mrt_targets_is_active() {
+        // The mono-target check (o/outColor, gated on es300) must not also
+        // fire for an MRT export -- MRT never renames into bare "o", so
+        // treating its presence as a collision here would be a false
+        // positive on top of the real o0/o1 check.
+        let input = "void main(){float o=1.;o0=vec4(o);}";
+        let (_, applied) = resolve_rename_collisions(input, TwiglMode::Geekest, true, 2);
+        assert!(applied.is_empty(), "{applied:?}");
+    }
+
+    #[test]
+    fn rewrite_twigl_shader_mrt_resolves_a_locally_declared_output_name_collision_end_to_end() {
+        let input = "void main(){float o0=1.;o1=vec4(o0);}";
+        let output = rewrite_twigl_shader_mrt(input, TwiglMode::Geekest, 2);
+        assert!(output.contains("o0_0"), "the local must survive under a fresh name: {output}");
+        assert!(output.contains("o1=vec4(o0_0)"), "{output}");
     }
 
     // --- Phase 43.2 -- round-trip import (unrewrite_twigl_shader) --------

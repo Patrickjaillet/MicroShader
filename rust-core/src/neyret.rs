@@ -255,7 +255,7 @@ fn nearest_catalogue_match(angle_degrees: f64) -> Option<&'static RotationConsta
         .iter()
         .map(|c| (c, (c.angle_degrees - normalized).abs()))
         .filter(|(_, diff)| *diff <= ANGLE_MATCH_TOLERANCE_DEGREES)
-        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(c, _)| c)
 }
 

@@ -63,7 +63,16 @@ std::string Win32TwiglExportPanel::reserved_uniform_names_csv() const
         return std::string();
     }
 
-    std::string csv = "r,m,t,f";
+    // "b" is reserved unconditionally (not just when has_backbuffer is on):
+    // Import (unrewrite_twigl_shader) always reverses "b" -> iChannel0 for
+    // Geek-family modes with no awareness of whether backbuffer was enabled
+    // at export time, so leaving "b" free whenever the toggle is off just
+    // moves the collision to Import instead of preventing it -- confirmed
+    // by a real user-reported shader where the golfer picked "b" for an
+    // unrelated local (its own final scene-color accumulator), and Import
+    // then silently turned it into a `sampler2D`-shadowing `iChannel0`
+    // local. See roadmap.md for the incident writeup.
+    std::string csv = "r,m,t,f,b";
     const char* out_base = "o";
     const char* back_base = "b";
 
@@ -83,18 +92,15 @@ std::string Win32TwiglExportPanel::reserved_uniform_names_csv() const
 
     if (has_backbuffer)
     {
-        csv += ",";
         if (mrt_targets >= 2)
         {
+            csv += ",";
             csv += back_base;
             csv += "0,";
             csv += back_base;
             csv += "1";
         }
-        else
-        {
-            csv += back_base;
-        }
+        // Single-target case already covered by the unconditional "b" above.
     }
 
     if (has_sound)
@@ -499,7 +505,7 @@ void Win32TwiglExportPanel::recompute_preview(bool force)
 {
     std::string preview_text = compute_export_text(golfed_source_cache);
 
-    char* notices = ushader_twigl_rename_collision_warnings(golfed_source_cache.c_str(), mode, es300);
+    char* notices = ushader_twigl_rename_collision_warnings(golfed_source_cache.c_str(), mode, es300, mrt_targets);
     collision_notice_text = notices != nullptr ? std::string(notices) : std::string();
     if (notices != nullptr)
     {

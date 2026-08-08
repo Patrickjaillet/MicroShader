@@ -25,6 +25,12 @@ public:
     void paint(ID2D1RenderTarget* render_target, const ThemeBrushes& brushes) const;
     bool contains(int client_x, int client_y) const;
 
+    // Test-support accessors (same rationale as Win32TwiglExportPanel's
+    // current_mode() etc.): expose otherwise-private input-handling state so
+    // tests can assert on it without a D2D render target.
+    int expanded_step_index() const { return expanded_index; }
+    float scroll_offset() const { return scroll_y; }
+
 private:
     struct RowLayout
     {

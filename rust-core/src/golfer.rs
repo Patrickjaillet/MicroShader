@@ -992,6 +992,18 @@ fn golf_with_protected_names_impl(
     taken.extend(builtins.iter().map(|s| s.to_string()));
     taken.extend(builtin_vars.iter().map(|s| s.to_string()));
     taken.extend(protected.iter().map(|s| s.to_string()));
+    // Caller-supplied protected names must be reserved from reuse, not just
+    // exempted from being renamed themselves -- `protected_names_set` above
+    // only filters `renamable` (stops an identifier already spelled e.g. "r"
+    // from being renamed to something else), which silently does NOT stop a
+    // *different* identifier from being renamed *to* "r". Confirmed as a
+    // real bug via a user-reported shader: the Twigl Export panel passes
+    // r/m/t/f (and conditionally o/b) here specifically so the golfer never
+    // reuses those letters for an unrelated local, but without this line
+    // that guarantee didn't actually hold whenever the identifier assigned
+    // that letter wasn't itself already using it verbatim in the source --
+    // i.e. almost always. See roadmap.md for the full incident writeup.
+    taken.extend(protected_names.iter().cloned());
     let renamable_set: HashSet<&str> = renamable.iter().map(|(name, _)| name.as_str()).collect();
     for tok in &tokens {
         if let Tok::Ident(name) = tok {
@@ -2149,6 +2161,50 @@ mod tests {
     }
 
     #[test]
+    fn protected_single_character_names_are_never_reused_even_in_aggressive_mode() {
+        // Regression test for a real user-reported shader: this app's Twigl
+        // Export panel protects r/m/t/f (the Geek-family iResolution/iMouse/
+        // iTime/iFrame shorthand) specifically so the golfer never picks
+        // those *particular* single-character names for some other local --
+        // but with several one-line locals and full aggressive renaming, the
+        // golfer will always try single-character names first, so this is
+        // exactly the case `protected_names_also_reserve_the_spelling_from_reuse`
+        // (which uses a 4-character protected name the golfer would never
+        // reach anyway) does not actually exercise.
+        let source = "void mainImage(out vec4 fragColor,in vec2 fragCoord){\
+            float distanceAccumulator=0.0;\
+            float stepCount=0.0;\
+            vec3 hitPoint=vec3(0.0);\
+            vec3 sceneColor=vec3(0.0);\
+            for(int i=0;i<10;i++){distanceAccumulator+=stepCount;hitPoint+=sceneColor;}\
+            fragColor=vec4(distanceAccumulator+hitPoint.x+sceneColor.x,0.0,0.0,1.0);\
+        }";
+        let protected: Vec<String> = vec!["r".to_string(), "m".to_string(), "t".to_string(), "f".to_string()];
+        let r = golf_with_protected_names(source, AggressiveOptions::all(), &protected);
+        fn contains_identifier(text: &str, name: &str) -> bool {
+            let mut start = 0usize;
+            while let Some(pos) = text[start..].find(name) {
+                let abs = start + pos;
+                let end = abs + name.len();
+                let before_ok = text[..abs].chars().last().map_or(true, |c| !(c.is_alphanumeric() || c == '_'));
+                let after_ok = text[end..].chars().next().map_or(true, |c| !(c.is_alphanumeric() || c == '_'));
+                if before_ok && after_ok {
+                    return true;
+                }
+                start = abs + 1;
+            }
+            false
+        }
+        for reserved in ["r", "m", "t", "f"] {
+            assert!(
+                !contains_identifier(&r.code, reserved),
+                "protected single-character name '{reserved}' must never be assigned to an unrelated local (none of r/m/t/f are used as uniform names here, so none should survive at all): {}",
+                r.code
+            );
+        }
+    }
+
+    #[test]
     fn renaming_is_deterministic() {
         let source = include_str!("../../fixtures/frequency_renaming.glsl");
         let mut opts = AggressiveOptions::all();
@@ -3024,6 +3080,64 @@ mod tests {
         );
         assert_eq!(r.code, "void f(){float a=1.;{g=g+1.;}float b=2.;}");
         assert_eq!(r.stats.aggressive.declarations_merged, 0);
+    }
+
+    #[test]
+    fn hoist_declarations_declines_when_a_later_declaration_depends_on_an_intervening_different_type_declaration() {
+        // Regression test for a real user-reported shader (a raymarcher):
+        // a later same-type declaration's initializer can depend on a name
+        // introduced by an *intervening different-type* declaration, not
+        // just an assignment statement -- hoisting it backward past that
+        // declaration would reference the name before it exists ("used
+        // before declared" GLSL that fails to compile). See roadmap.md,
+        // "Correction critique #3, découverte le 2026-08-05".
+        let mut opts = AggressiveOptions::none();
+        opts.hoist_declarations = true;
+        let r = golf_with_protected_names(
+            "void f(){float a=1.0;vec3 c=vec3(2.0);float b=c.x;}",
+            opts,
+            &["f".to_string(), "a".to_string(), "b".to_string(), "c".to_string()],
+        );
+        assert_eq!(r.code, "void f(){float a=1.;vec3 c=vec3(2.);float b=c.x;}");
+        assert_eq!(r.stats.aggressive.declarations_merged, 0);
+    }
+
+    #[test]
+    fn hoist_declarations_still_merges_across_an_unrelated_different_type_declaration() {
+        // The fix for the case directly above must not become so
+        // conservative that it declines every same-type merge whenever a
+        // different-type declaration merely appears in the gap -- only
+        // when the later declaration actually depends on a name that
+        // different-type declaration introduced.
+        let mut opts = AggressiveOptions::none();
+        opts.hoist_declarations = true;
+        let r = golf_with_protected_names(
+            "void f(){float a=1.0;vec3 c=vec3(2.0);float b=3.0;}",
+            opts,
+            &["f".to_string(), "a".to_string(), "b".to_string(), "c".to_string()],
+        );
+        assert_eq!(r.code, "void f(){float a=1.,b=3.;vec3 c=vec3(2.);}");
+        assert_eq!(r.stats.aggressive.declarations_merged, 1);
+    }
+
+    #[test]
+    fn hoist_declarations_merges_a_later_declaration_that_reads_the_chains_own_earlier_declarator() {
+        // Regression test for a real user-reported shader: `p`'s initializer
+        // reads `A`, which is the chain's own anchor declaration -- not some
+        // unrelated intervening name. Merging is safe here because GLSL
+        // evaluates a comma-declarator list left to right and hoisting
+        // preserves `A`'s position ahead of `p`, so this must merge (unlike
+        // the "intervening different-type declaration" case above, where the
+        // referenced name is never moved along with it).
+        let mut opts = AggressiveOptions::none();
+        opts.hoist_declarations = true;
+        let r = golf_with_protected_names(
+            "void f(){vec2 A=r.rg;float b=t*.4;vec2 p=(FC.xy*2.-A)/A.y;}",
+            opts,
+            &["f".to_string(), "A".to_string(), "b".to_string(), "p".to_string(), "r".to_string(), "t".to_string(), "FC".to_string()],
+        );
+        assert_eq!(r.code, "void f(){vec2 A=r.xy,p=(FC.xy*2.-A)/A.y;float b=t*.4;}");
+        assert_eq!(r.stats.aggressive.declarations_merged, 1);
     }
 
     #[test]

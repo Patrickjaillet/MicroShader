@@ -308,6 +308,64 @@ target_link_libraries(twigl_panel_hit_test PRIVATE
     rust_core
 )
 
+add_executable(ui_pure_logic_test
+    tests/ui_pure_logic_test.cpp
+    src/ui/fuzzy_match.cpp
+    src/ui/unified_diff.cpp
+    src/ui/glsl_format.cpp
+    src/ui/keybindings_storage.cpp
+    src/ui/golf_options_convert.cpp
+    src/ui/glsl_token_rules.cpp
+    src/ui/glsl_syntax_colors.cpp
+    src/ui/recent_files.cpp
+    src/platform/paths.cpp
+    src/platform/utf8.cpp
+)
+
+target_include_directories(ui_pure_logic_test PRIVATE
+    src
+)
+
+target_link_libraries(ui_pure_logic_test PRIVATE
+    rust_core
+)
+
+add_executable(win32_panel_state_test
+    tests/win32_panel_state_test.cpp
+    src/ui/win32_command_palette.cpp
+    src/ui/win32_diff_view.cpp
+    src/ui/win32_trace_view.cpp
+    src/ui/win32_document_tab_strip.cpp
+    src/ui/win32_keybindings.cpp
+    src/ui/keybindings_storage.cpp
+    src/ui/win32_stats_panel.cpp
+    src/ui/budget_presets.cpp
+    src/ui/win32_appearance_panel.cpp
+    src/ui/win32_appearance_settings.cpp
+    src/ui/win32_minimap.cpp
+    src/ui/win32_text_editor.cpp
+    src/ui/win32_theme_brushes.cpp
+    src/ui/glsl_token_rules.cpp
+    src/ui/glsl_syntax_colors.cpp
+    src/ui/fuzzy_match.cpp
+    src/platform/accessibility_core.cpp
+    src/platform/paths.cpp
+    src/platform/utf8.cpp
+)
+
+target_include_directories(win32_panel_state_test PRIVATE
+    src
+)
+
+target_link_libraries(win32_panel_state_test PRIVATE
+    user32
+    gdi32
+    ole32
+    oleaut32
+    uiautomationcore
+    rust_core
+)
+
 add_executable(wgl_equivalence_test
     tests/wgl_equivalence_test.cpp
     src/render/wgl_viewport_host.cpp
@@ -341,6 +399,8 @@ foreach(ushader_test_target
     wgl_equivalence_test
     twigl_golf_collision_test
     twigl_panel_hit_test
+    ui_pure_logic_test
+    win32_panel_state_test
 )
     add_test(NAME ${ushader_test_target}
         COMMAND ${ushader_test_target}

@@ -42,22 +42,26 @@ int main()
     panel.restore_state(/*mode=*/0, /*es300=*/false, /*mrt=*/1, /*backbuffer=*/false, /*sound=*/false);
     expect_eq(panel.reserved_uniform_names_csv(), "", "Classic mode reserves nothing");
 
-    // Geek mode, single target, no backbuffer/sound: r/m/t/f (inputs) + o (output).
+    // Geek mode, single target, no backbuffer/sound: r/m/t/f/b (inputs,
+    // "b" unconditional -- see reserved_uniform_names_csv()'s own comment on
+    // why it can't be gated on has_backbuffer) + o (output).
     panel.restore_state(/*mode=*/1, /*es300=*/false, /*mrt=*/1, /*backbuffer=*/false, /*sound=*/false);
-    expect_eq(panel.reserved_uniform_names_csv(), "r,m,t,f,o", "Geek mode, no backbuffer/sound");
+    expect_eq(panel.reserved_uniform_names_csv(), "r,m,t,f,b,o", "Geek mode, no backbuffer/sound");
 
-    // Geeker mode with backbuffer + sound also reserves b and s.
+    // Geeker mode with backbuffer + sound also reserves s ("b" already
+    // unconditional above; single-target backbuffer adds nothing further).
     panel.restore_state(/*mode=*/2, /*es300=*/false, /*mrt=*/1, /*backbuffer=*/true, /*sound=*/true);
-    expect_eq(panel.reserved_uniform_names_csv(), "r,m,t,f,o,b,s", "Geeker mode with backbuffer+sound");
+    expect_eq(panel.reserved_uniform_names_csv(), "r,m,t,f,b,o,s", "Geeker mode with backbuffer+sound");
 
     // Geekest MRT reserves o0/o1 instead of a bare o, plus FC (gl_FragCoord's
     // Geekest-only shorthand).
     panel.restore_state(/*mode=*/3, /*es300=*/true, /*mrt=*/2, /*backbuffer=*/false, /*sound=*/false);
-    expect_eq(panel.reserved_uniform_names_csv(), "r,m,t,f,o0,o1,FC", "Geekest MRT reserves o0/o1 and FC");
+    expect_eq(panel.reserved_uniform_names_csv(), "r,m,t,f,b,o0,o1,FC", "Geekest MRT reserves o0/o1 and FC");
 
-    // MRT with backbuffer also doubles the backbuffer name (b0/b1).
+    // MRT with backbuffer also doubles the backbuffer name (b0/b1), on top
+    // of the unconditional bare "b".
     panel.restore_state(/*mode=*/1, /*es300=*/true, /*mrt=*/2, /*backbuffer=*/true, /*sound=*/false);
-    expect_eq(panel.reserved_uniform_names_csv(), "r,m,t,f,o0,o1,b0,b1", "Geek MRT with backbuffer doubles b0/b1");
+    expect_eq(panel.reserved_uniform_names_csv(), "r,m,t,f,b,o0,o1,b0,b1", "Geek MRT with backbuffer doubles b0/b1");
 
     if (failures == 0)
     {

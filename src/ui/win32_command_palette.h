@@ -38,6 +38,18 @@ public:
     void tick();
     void paint(ID2D1RenderTarget* render_target, const ThemeBrushes& brushes) const;
 
+    // Test-support accessors (same rationale as Win32TwiglExportPanel's
+    // current_mode() etc.): expose otherwise-private filter/selection state
+    // so tests can assert on it without a D2D render target.
+    const std::string& current_query() const { return query; }
+    int filtered_count() const { return static_cast<int>(filtered_indices.size()); }
+    int selected_command_index() const
+    {
+        return (selected >= 0 && selected < static_cast<int>(filtered_indices.size()))
+            ? filtered_indices[static_cast<size_t>(selected)]
+            : -1;
+    }
+
 private:
     IDWriteTextFormat* query_format = nullptr;
     IDWriteTextFormat* item_format = nullptr;

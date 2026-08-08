@@ -816,6 +816,157 @@ mod tests {
         let decoded = lzw_decode(&encoded, 8);
         assert_eq!(decoded, indices);
     }
+
+    // --- Property/fuzz-style coverage for the LZW dictionary invariant
+    // (TODO.md: "plusieurs .expect() internes au dictionnaire LZW ... reposent
+    // sur un invariant jamais verifie par un test de propriete/fuzz"). The two
+    // `dict.get(&current).expect(...)` calls in lzw_encode above assume
+    // `current` is always a key already inserted into `dict` -- true by
+    // construction (every `current` either starts as a single already-seeded
+    // symbol, or was `extended` and confirmed present via `contains_key`
+    // one iteration earlier), but that argument was previously backed only by
+    // the fixed fixtures above, not by search over arbitrary content. This
+    // uses a small self-contained xorshift PRNG (no new crate dependency) to
+    // exercise many pseudorandom index streams and image shapes/color counts,
+    // deterministically seeded so a failure here always reproduces.
+
+    struct Xorshift64 {
+        state: u64,
+    }
+
+    impl Xorshift64 {
+        fn new(seed: u64) -> Self {
+            Xorshift64 { state: seed | 1 }
+        }
+
+        fn next_u64(&mut self) -> u64 {
+            let mut x = self.state;
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            self.state = x;
+            x
+        }
+
+        // Inclusive-exclusive [0, bound).
+        fn next_range(&mut self, bound: u32) -> u32 {
+            if bound == 0 {
+                return 0;
+            }
+            (self.next_u64() % bound as u64) as u32
+        }
+    }
+
+    #[test]
+    fn lzw_dictionary_invariant_holds_across_many_randomized_streams_and_code_sizes() {
+        let mut rng = Xorshift64::new(0xC0FFEE_1234_5678);
+
+        for trial in 0..500 {
+            // min_code_size in [2, 8] covers every palette size GIF actually
+            // uses (a 2-bit minimum is the GIF spec's own floor even for a
+            // 1-2 color palette, up through the full 8-bit/256-color case).
+            let min_code_size = (rng.next_range(7) + 2) as u8;
+            let alphabet = 1u32 << min_code_size;
+            let length = rng.next_range(3000) as usize;
+
+            // Mix three content shapes across trials: uniform random (mostly
+            // dictionary misses -- exercises the "insert a fresh 2-symbol
+            // sequence" path hardest), highly repetitive (forces dictionary
+            // growth and, for small alphabets, a mid-stream Clear Code
+            // reset), and a middle ground with runs of random length.
+            let mut indices = Vec::with_capacity(length);
+            let shape = trial % 3;
+            while indices.len() < length {
+                match shape {
+                    0 => indices.push(rng.next_range(alphabet) as u8),
+                    1 => {
+                        let run_len = 1 + rng.next_range(20) as usize;
+                        let symbol = rng.next_range(alphabet) as u8;
+                        for _ in 0..run_len {
+                            indices.push(symbol);
+                        }
+                    }
+                    _ => {
+                        let pattern_len = 1 + rng.next_range(6) as usize;
+                        let pattern: Vec<u8> =
+                            (0..pattern_len).map(|_| rng.next_range(alphabet) as u8).collect();
+                        let repeats = 1 + rng.next_range(50) as usize;
+                        for _ in 0..repeats {
+                            indices.extend_from_slice(&pattern);
+                        }
+                    }
+                }
+            }
+            indices.truncate(length);
+
+            let encoded = lzw_encode(&indices, min_code_size);
+            let decoded = lzw_decode(&encoded, min_code_size);
+            assert_eq!(
+                decoded, indices,
+                "trial {trial}: round-trip mismatch for min_code_size={min_code_size}, length={length}, shape={shape}"
+            );
+        }
+    }
+
+    #[test]
+    fn encode_gif_round_trips_losslessly_across_randomized_dimensions_frame_counts_and_palettes() {
+        // Complements the LZW-level fuzz test above by driving the same
+        // dictionary logic through the real encode_gif entry point, with
+        // randomized width/height/frame-count/palette-size combinations a
+        // fixed fixture set can't enumerate. Color counts are kept <=256 so
+        // build_palette never quantizes (see its own doc comment) --
+        // decoded pixels must then match the source exactly, not just
+        // approximately.
+        let mut rng = Xorshift64::new(0xFEED_FACE_C0DE_0001);
+
+        for trial in 0..40 {
+            let width = 1 + rng.next_range(24) as u16;
+            let height = 1 + rng.next_range(24) as u16;
+            let frame_count = 1 + rng.next_range(4) as usize;
+            let color_count = 1 + rng.next_range(256) as usize;
+
+            let palette: Vec<[u8; 3]> = (0..color_count)
+                .map(|_| {
+                    [
+                        rng.next_range(256) as u8,
+                        rng.next_range(256) as u8,
+                        rng.next_range(256) as u8,
+                    ]
+                })
+                .collect();
+
+            let mut frame_buffers: Vec<Vec<u8>> = Vec::with_capacity(frame_count);
+            for _ in 0..frame_count {
+                let mut pixels = Vec::with_capacity(width as usize * height as usize * 4);
+                for _ in 0..(width as usize * height as usize) {
+                    let color = palette[rng.next_range(color_count as u32) as usize];
+                    pixels.extend_from_slice(&[color[0], color[1], color[2], 255]);
+                }
+                frame_buffers.push(pixels);
+            }
+
+            let frames: Vec<GifFrame> = frame_buffers.iter().map(|p| GifFrame { rgba: p }).collect();
+            let gif = encode_gif(&frames, width, height, 4)
+                .unwrap_or_else(|| panic!("trial {trial}: encode_gif unexpectedly returned None"));
+            let (decoded_width, decoded_height, decoded_frames) = decode_gif_for_test(&gif);
+
+            assert_eq!(decoded_width, width, "trial {trial}: width mismatch");
+            assert_eq!(decoded_height, height, "trial {trial}: height mismatch");
+            assert_eq!(decoded_frames.len(), frame_count, "trial {trial}: frame count mismatch");
+
+            for (frame_index, (original, decoded)) in frame_buffers.iter().zip(decoded_frames.iter()).enumerate() {
+                for (pixel_index, (original_px, decoded_px)) in
+                    original.chunks_exact(4).zip(decoded.chunks_exact(3)).enumerate()
+                {
+                    assert_eq!(
+                        &original_px[..3],
+                        decoded_px,
+                        "trial {trial} frame {frame_index} pixel {pixel_index}: lossy round-trip with only {color_count} colors (<=256, should be exact)"
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1796,8 +1796,31 @@ struct HoistChain {
     /// chain for *all* types, not just this one, matching this module's
     /// "decline rather than risk" discipline.
     referenced: HashSet<String>,
+    /// Subset of `referenced`: names this chain has itself declared (the
+    /// anchor's own name plus every merged tail declarator's name). A later
+    /// same-type declaration referencing one of *these* is safe to merge --
+    /// GLSL evaluates a comma-declarator list left to right, so as long as
+    /// relative order within the chain is preserved (guaranteed: `tail`
+    /// only ever appends), an earlier declarator in the same merged
+    /// statement is still visible to a later one after hoisting. Only names
+    /// in `referenced` but *not* in `declared` (an outside read like the
+    /// anchor's own RHS, or a name pulled in from an intervening
+    /// different-type declaration -- see the "used before declared" bug
+    /// below) make a later declaration's overlapping reference unsafe.
+    declared: HashSet<String>,
     /// Spans (start, end) of each hoisted declaration, to be blanked out.
     removed_spans: Vec<(usize, usize)>,
+}
+
+/// The set of names a declaration statement's own `SubDecl`s introduce --
+/// used to seed/extend a `HoistChain`'s `declared` set.
+fn sub_decl_names(items: &[Item], subs: &[SubDecl]) -> HashSet<String> {
+    subs.iter()
+        .filter_map(|s| match &items[s.name_idx].tok {
+            Tok::Ident(name) => Some(name.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 fn identifier_names_in_span(items: &[Item], start: usize, end: usize) -> HashSet<String> {
@@ -1909,21 +1932,77 @@ pub fn hoist_declarations(items: Vec<Item>, stats: &mut AggressiveStats) -> Vec<
             continue;
         }
 
-        if let Some((type_name, _subs, end)) = parse_declaration_statement(&items, i) {
+        if let Some((type_name, subs, end)) = parse_declaration_statement(&items, i) {
             let semicolon_idx = end - 1;
-            let referenced = identifier_names_in_span(&items, i, end);
+            // Starts at `i + 1`, not `i`, to exclude the type keyword itself
+            // (e.g. "float") from the set -- it's a `Tok::Ident` like any
+            // other, so including it made every same-type declaration's
+            // `referenced` set trivially non-disjoint from every other
+            // same-type chain's (both always contain e.g. "float"),
+            // wrongly declining every same-type merge, not just unsafe
+            // ones.
+            let referenced = identifier_names_in_span(&items, i + 1, end);
+            let own_names = sub_decl_names(&items, &subs);
 
-            if let Some(chain) = chains.get_mut(&type_name) {
+            // Confirmed as a real bug via a user-reported shader: a
+            // same-type chain's own `referenced` set previously only grew
+            // from declarations that actually merged *into* it, so it had
+            // no way to notice a name introduced by an *intervening
+            // different-type* declaration -- e.g. `vec3 tFar3 = ...;`
+            // between the anchor and a later `float wallHit =
+            // min(...,tFar3...);`. That later declaration would get
+            // hoisted back to the anchor, referencing `tFar3` before its
+            // own (never-moved) declaration -- "used before declared"
+            // GLSL that fails to compile. Fixed by checking, before every
+            // merge, whether this declaration's own names were already
+            // introduced by *any* currently open chain (any type) since
+            // its anchor, and by feeding every declaration's names into
+            // every open chain regardless of type, so this is caught
+            // symmetrically no matter which type comes first.
+            //
+            // Names the chain itself declared (`chain.declared`) are
+            // excluded from that check: a later same-type declaration
+            // referencing an earlier declarator already folded into this
+            // same chain (e.g. `vec2 A=r.rg;float b=t*.4;vec2
+            // p=(FC.xy*2.-A)/A.y;`, where `p` reads `A`) is exactly the
+            // ordinary comma-declarator forward reference GLSL already
+            // allows, and merging preserves `A`'s position ahead of `p`
+            // (`tail` only ever appends) -- so it is not a hazard the way
+            // referencing an unmoved intervening declaration (`b`) is.
+            let can_merge = chains.get(&type_name).is_some_and(|chain| {
+                chain
+                    .referenced
+                    .iter()
+                    .filter(|name| !chain.declared.contains(*name))
+                    .all(|name| !referenced.contains(name))
+            });
+
+            for chain in chains.values_mut() {
+                chain.referenced.extend(referenced.iter().cloned());
+            }
+
+            if can_merge {
+                let chain = chains.get_mut(&type_name).expect("can_merge implies a chain exists");
                 chain.tail.push(items[i + 1..semicolon_idx].to_vec());
-                chain.referenced.extend(referenced);
                 chain.removed_spans.push((i, end));
+                chain.declared.extend(own_names);
             } else {
+                // Either there was no chain for this type yet, or the
+                // existing one already depends on / declares one of this
+                // declaration's own names -- either way, any merge that
+                // chain already committed must still be flushed (not
+                // dropped), and this declaration becomes a fresh anchor
+                // for its own type instead of being hoisted unsafely.
+                if let Some(chain) = chains.remove(&type_name) {
+                    flush_chain(chain, &mut edits, &mut hoisted);
+                }
                 chains.insert(
                     type_name,
                     HoistChain {
                         anchor_semicolon: semicolon_idx,
                         tail: Vec::new(),
                         referenced,
+                        declared: own_names,
                         removed_spans: Vec::new(),
                     },
                 );

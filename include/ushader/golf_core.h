@@ -204,9 +204,14 @@ char *ushader_twigl_unrewrite(const char *source, int32_t mode);
 // variable named "r" to "r_0" so it stops colliding with iResolution's
 // Geek-family shorthand. This returns a single string joining (with "; ")
 // a human-readable note for each rename actually applied for this
-// source/mode/es300 combination, so the UI can tell the user their shader
-// was adjusted. Empty (not null) when none were needed.
-char *ushader_twigl_rename_collision_warnings(const char *source, int32_t mode, bool es300);
+// source/mode/es300/mrt_targets combination, so the UI can tell the user
+// their shader was adjusted. Empty (not null) when none were needed.
+// `mrt_targets` must match the value passed to ushader_twigl_rewrite_full
+// for the same export (MRT and single-target use different collision checks).
+char *ushader_twigl_rename_collision_warnings(const char *source,
+                                               int32_t mode,
+                                               bool es300,
+                                               uint8_t mrt_targets);
 
 char *ushader_twigl_snippet(const char *name);
 

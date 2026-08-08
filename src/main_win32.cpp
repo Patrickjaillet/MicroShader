@@ -1021,12 +1021,8 @@ namespace
     // ROADMAP.md Phase 38.7 -- PNG viewport screenshot and a self-contained
     // HTML session report, both offline-only (no network fetch, no
     // runtime-fetched encoder), restored from the retired ImGui shell's
-    // reporting feature. **Documented deviation**: GIF recording is
-    // explicitly not implemented here -- it would require a hand-written
-    // GIF89a/LZW encoder (a project of DEFLATE-encoder-class scope, see
-    // ROADMAP.md Phase 37.2's precedent for what that actually costs to
-    // build correctly), disproportionate to add as a side effect of this
-    // phase; tracked as a known gap rather than silently skipped.
+    // reporting feature. GIF capture is implemented separately
+    // (capture_viewport_gif_action + rust-core/src/gif.rs, Phase 45.1).
     void capture_viewport_png_action(HWND hwnd)
     {
         if (!g_gl_ready)
@@ -2088,6 +2084,11 @@ namespace
 
 int main()
 {
+    // Per-monitor DPI awareness (V2) so the UI does not get bitmap-stretched
+    // on HiDPI displays. Layout still uses fixed pixel constants; further
+    // scaling work remains future work.
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
     Gdiplus::GdiplusStartupInput gdiplus_input;
     Gdiplus::GdiplusStartup(&g_gdiplus_token, &gdiplus_input, nullptr);
 

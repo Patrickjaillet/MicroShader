@@ -5,6 +5,45 @@ application.
 
 ## [Unreleased]
 
+## [4.3.1] - 2026-08-08
+
+### Fixed
+
+- MRT Twigl exports (2+ render targets) were not covered by the
+  automatic rename-collision resolution added in 4.3.0: a local
+  variable declared `o0`/`o1` (or `outColor0`/`outColor1`) could
+  collide with the MRT output names without being renamed. Collision
+  detection now also runs for MRT mode, triggering only on an actual
+  local declaration of the colliding name (not on the plain MRT output
+  usage every legitimate MRT shader is expected to contain), to avoid
+  false positives.
+- Screen-reader (Narrator) coverage was documented as complete for
+  every control; the README now accurately states that the Diff,
+  Trace, Stats, Keybindings, Command Palette, and Minimap panels are
+  not yet fully covered.
+- The application did not declare per-monitor DPI awareness, so the
+  UI could render blurry or incorrectly sized on HiDPI displays; it
+  now opts in to `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2` at
+  startup (fixed-pixel layout scaling remains future work).
+- A stale code comment described GIF capture as unimplemented; it has
+  shipped since 4.1.0 and the comment now reflects that.
+- A `partial_cmp().unwrap()` in the rotation-constant catalogue lookup
+  could panic if given a `NaN` angle; it now falls back to `Equal`
+  instead.
+
+### Added
+
+- Two new C++ test executables, `ui_pure_logic_test` and
+  `win32_panel_state_test`, covering previously-untested pure-logic
+  modules (fuzzy match, unified diff, GLSL formatting/tokenizing,
+  keybindings storage, recent files, golf-options conversion) and
+  stateful UI panel classes (command palette, diff view, trace view,
+  document tab strip, keybindings, stats panel, appearance panel,
+  minimap).
+- Randomized round-trip tests for the GIF encoder's LZW dictionary
+  (varying code size, dimensions, frame count, and palette size)
+  guarding the invariants several internal `.expect()` calls rely on.
+
 ## [4.3.0] - 2026-08-05
 
 ### Fixed
